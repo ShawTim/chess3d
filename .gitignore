@@ -1,0 +1,9 @@
+# Dependencies (three.js is vendored into vendor/, so nothing here ships)
+node_modules/
+
+# OS noise
+.DS_Store
+*.log
+
+# The scratch copy tools/pick_centre.mjs writes while solving
+src/render/.pieces.scratch.js

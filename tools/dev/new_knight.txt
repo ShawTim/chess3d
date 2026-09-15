@@ -1,0 +1,278 @@
+/* ---------------------------------------------------------------- knight -- */
+
+/**
+ * The knight's head, neck and mane, built as a swept solid.
+ *
+ * A knight cannot be a surface of revolution, but it should still look as though
+ * it was turned from the same block as the rest of the set. A flat extruded
+ * silhouette does not: its constant thickness and straight flanks read as a
+ * laser-cut plate, and three visual reviews of earlier builds called it a
+ * "2.5D cut-out" with "mechanical fins" beside the smooth pawns and bishops.
+ *
+ * So the head is a SWEEP instead. A curved spine runs up the neck, over the poll
+ * and down the face to the muzzle, and an elliptical cross-section is carried
+ * along it, reoriented so it stays perpendicular to the spine. Varying the two
+ * radii at each station gives the volume a real horse has: a full cheek, a neck
+ * that narrows below it, and a muzzle that tapers to a rounded end.
+ *
+ * The parameters below are the spine stations:
+ *
+ *   [forward z, height y, half-width across the piece, half-thickness along the
+ *    spine normal]
+ *
+ * The half-thickness runs in the plane of the silhouette, so it controls the
+ * side profile directly; the half-width runs across the piece, so it controls
+ * how much the head is rounded rather than flat.
+ */
+const KNIGHT_SPINE = [
+  // Neck: rises from the pedestal, leaning forward as it goes.
+  [0.010, 0.000, 0.100, 0.118],
+  [0.016, 0.130, 0.098, 0.114],
+  [0.012, 0.260, 0.096, 0.112],
+  [0.004, 0.390, 0.098, 0.116],
+  [0.026, 0.510, 0.106, 0.126],
+  // Head: swells into the cheek and skull.
+  [0.068, 0.618, 0.116, 0.146],
+  [0.128, 0.716, 0.122, 0.156],
+  [0.202, 0.790, 0.118, 0.150],
+  [0.286, 0.830, 0.110, 0.134],
+  // Face: narrows steadily and descends to the muzzle.
+  [0.374, 0.816, 0.100, 0.118],
+  [0.452, 0.772, 0.090, 0.104],
+  [0.524, 0.708, 0.080, 0.090],
+  [0.582, 0.640, 0.070, 0.078],
+  [0.622, 0.578, 0.058, 0.068],
+];
+
+/** Rings around the spine; 28 keeps the surface smooth at close range. */
+const KNIGHT_RING_SEGMENTS = 28;
+
+/**
+ * Stations along the mane, as (spine index fraction, outwards offset). The mane
+ * is a crest of short spikes riding the back of the neck, added as separate
+ * small solids rather than cut into the outline — a cut outline produced
+ * rectangular notches that read as cooling fins, which visual review flagged
+ * twice.
+ */
+const KNIGHT_MANE = [0.20, 0.28, 0.36, 0.44, 0.52, 0.60, 0.68];
+
+/** A hair of extra radius so the mane spikes are rooted in the neck, not on it. */
+const KNIGHT_MANE_SINK = 0.022;
+
+/** Interpolate the spine at fractional index t (0..1). */
+function spineAt(t) {
+  const n = KNIGHT_SPINE.length - 1;
+  const x = Math.min(0.9999, Math.max(0, t)) * n;
+  const i = Math.floor(x);
+  const f = x - i;
+  const a = KNIGHT_SPINE[i];
+  const b = KNIGHT_SPINE[Math.min(n, i + 1)];
+  return [
+    a[0] + (b[0] - a[0]) * f,
+    a[1] + (b[1] - a[1]) * f,
+    a[2] + (b[2] - a[2]) * f,
+    a[3] + (b[3] - a[3]) * f,
+  ];
+}
+
+/**
+ * The swept head-and-neck solid, in its own space: the neck base sits at y = 0
+ * and the piece is centred across x.
+ *
+ * Rings are generated perpendicular to the spine. Because the spine is planar
+ * (it lies in the y-z plane), the frame is simple: the piece's width is always
+ * along x, and the in-plane normal is the spine tangent rotated a quarter turn.
+ */
+export function knightHeadGeo() {
+  const positions = [];
+  const uvs = [];
+  const indices = [];
+  const stations = KNIGHT_SPINE.length;
+
+  // Normals per station, for orienting the ellipse and for the mane.
+  const tangents = [];
+  for (let i = 0; i < stations; i++) {
+    const prev = KNIGHT_SPINE[Math.max(0, i - 1)];
+    const next = KNIGHT_SPINE[Math.min(stations - 1, i + 1)];
+    let tz = next[0] - prev[0];
+    let ty = next[1] - prev[1];
+    const len = Math.hypot(tz, ty) || 1;
+    tangents.push([tz / len, ty / len]);
+  }
+
+  const ringPoint = (i, a) => {
+    const [z, y, hw, ht] = KNIGHT_SPINE[i];
+    const [, tz, ty] = [0, tangents[i][0], tangents[i][1]];
+    // In-plane normal, perpendicular to the tangent.
+    const nz = -ty;
+    const ny = tz;
+    const c = Math.cos(a);
+    const s = Math.sin(a);
+    return [
+      c * hw,                 // x: across the piece
+      y + s * ht * ny,        // y
+      z + s * ht * nz,        // z
+    ];
+  };
+
+  for (let i = 0; i < stations; i++) {
+    const v = i / (stations - 1);
+    for (let k = 0; k < KNIGHT_RING_SEGMENTS; k++) {
+      const a = (k / KNIGHT_RING_SEGMENTS) * TWO_PI;
+      const [x, y, z] = ringPoint(i, a);
+      positions.push(x, y, z);
+      uvs.push(k / KNIGHT_RING_SEGMENTS, v);
+    }
+  }
+
+  for (let i = 0; i < stations - 1; i++) {
+    const base = i * KNIGHT_RING_SEGMENTS;
+    const next = (i + 1) * KNIGHT_RING_SEGMENTS;
+    for (let k = 0; k < KNIGHT_RING_SEGMENTS; k++) {
+      const k2 = (k + 1) % KNIGHT_RING_SEGMENTS;
+      indices.push(base + k, next + k, next + k2);
+      indices.push(base + k, next + k2, base + k2);
+    }
+  }
+
+  // Cap the muzzle with a fan so the solid is closed.
+  const last = stations - 1;
+  const capCentre = positions.length / 3;
+  positions.push(0, KNIGHT_SPINE[last][1], KNIGHT_SPINE[last][0]);
+  uvs.push(0.5, 1);
+  const lastBase = last * KNIGHT_RING_SEGMENTS;
+  for (let k = 0; k < KNIGHT_RING_SEGMENTS; k++) {
+    const k2 = (k + 1) % KNIGHT_RING_SEGMENTS;
+    indices.push(lastBase + k, k2 + lastBase, capCentre);
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/** A bounding box for a geometry, computed in place. */
+function geomBox(geo) {
+  geo.computeBoundingBox();
+  return geo.boundingBox;
+}
+
+/** Mirror a geometry across X, reversing winding so its faces stay outward. */
+function mirrorX(geo) {
+  const g = geo.toNonIndexed();
+  g.scale(-1, 1, 1);
+  for (const key of ['position', 'uv', 'normal']) {
+    const attr = g.attributes[key];
+    if (!attr) continue;
+    const n = attr.itemSize;
+    const arr = attr.array;
+    for (let i = 0; i < attr.count; i += 3) {
+      for (let c = 0; c < n; c++) {
+        const a = (i + 1) * n + c;
+        const b = (i + 2) * n + c;
+        const t = arr[a];
+        arr[a] = arr[b];
+        arr[b] = t;
+      }
+    }
+    attr.needsUpdate = true;
+  }
+  return g;
+}
+
+/**
+ * One mane spike, as a small tapered wedge lying along the back of the neck.
+ *
+ * Built as a cone squashed across the piece and rotated to follow the neck's
+ * tangent, then sunk slightly into the surface so it is rooted rather than
+ * resting on it.
+ */
+function maneSpike(t, side) {
+  const [z, y, hw, ht] = spineAt(t);
+  const a = spineAt(Math.min(1, t + 0.02));
+  const b = spineAt(Math.max(0, t - 0.02));
+  let tz = a[0] - b[0];
+  let ty = a[1] - b[1];
+  const len = Math.hypot(tz, ty) || 1;
+  tz /= len; ty /= len;
+  const nz = -ty;
+  const ny = tz;
+
+  const height = 0.062;
+  const spike = new THREE.ConeGeometry(0.030, height, 10);
+  // Point the cone along the neck's outward normal, then flatten it across the
+  // piece so the crest reads as a series of ridges rather than a row of spikes.
+  spike.rotateZ(-Math.PI / 2);
+  spike.rotateX(Math.atan2(nz, ny) - Math.PI / 2);
+  spike.scale(1.0, 1.0, 0.55);
+
+  // Project the spike's axis to lie along the outward normal at this station.
+  const backZ = z + nz * (ht - KNIGHT_MANE_SINK);
+  const backY = y + ny * (ht - KNIGHT_MANE_SINK);
+  spike.translate(0, backY, backZ);
+  return side === -1 ? mirrorX(spike) : spike;
+}
+
+/**
+ * The knight's parts in final board coordinates, seated on the pedestal.
+ *
+ * Exported so the assembly can be verified rather than trusted: see
+ * `tests/geometry.test.mjs`, which asserts that the head overlaps the base, that
+ * the ears meet the crown, that the muzzle projects past the crown with an
+ * undercut, that the neck is markedly narrower than the head, and that the head
+ * carries real three-dimensional volume.
+ */
+export function knightParts() {
+  const baseTop = 0.50;
+  const base = lathe([
+    ...pedestal(0.76),
+    [0.190, 0.230], [0.178, 0.300], [0.170, 0.362], [0.169, 0.420],
+    [0.177, 0.452], [0.187, 0.472], [0.170, 0.490], [0.120, 0.500],
+    [0.070, 0.506],
+  ].map(([r, y]) => [r, y * (baseTop / 0.506)])).toNonIndexed();
+
+  const head = knightHeadGeo();
+
+  // Seat the head on the pedestal and scale so the finished piece — head plus
+  // ears — reaches the declared height.
+  const seat = baseTop - 0.10;
+  const EAR_ALLOWANCE = 0.115;
+  head.computeBoundingBox();
+  const rawHeight = head.boundingBox.max.y - head.boundingBox.min.y;
+  const k = (PIECE_HEIGHT[KNIGHT] - seat - EAR_ALLOWANCE) / rawHeight;
+  head.scale(k, k, k);
+  head.computeBoundingBox();
+  head.translate(0, seat - head.boundingBox.min.y, 0);
+  head.computeBoundingBox();
+  const headTop = head.boundingBox.max.y;
+
+  // Ears: seated on the poll just behind the forehead, swept back, and sunk into
+  // the skull so they are rooted rather than balanced on top.
+  const earHeight = 0.120;
+  const ear = new THREE.ConeGeometry(0.038, earHeight, 12).rotateX(-0.30);
+  const earTop = headTop - 0.020;
+  ear.translate(-0.042, earTop - earHeight * 0.5, 0.075 * k);
+  const earN = ear.toNonIndexed();
+  const ear2 = mirrorX(earN);
+
+  // Mane: a crest of spikes down the back of the neck.
+  const maneGeos = [];
+  for (const t of KNIGHT_MANE) {
+    maneGeos.push(maneSpike(t, 1));
+  }
+
+  return { base, head, ear: earN, ear2, mane: maneGeos, baseTop, scale: k, seat };
+}
+
+function knightGeo() {
+  const p = knightParts();
+  const parts = [p.base, p.head, p.ear, p.ear2, ...p.mane];
+  const merged = mergeGeometries(parts, false);
+  merged.computeVertexNormals();
+  return { shell: merged, inlays: [] };
+}
+
+</parameter>

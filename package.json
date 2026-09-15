@@ -1,0 +1,17 @@
+{
+  "name": "chess3d",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "node tests/perft.test.mjs && node tests/ai.test.mjs && node tests/geometry.test.mjs && node tests/capture.test.mjs",
+    "serve": "node tools/serve.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "Masterpiece-quality 3D chess with an offline AI opponent, running entirely as a static page.",
+  "dependencies": {
+    "three": "^0.160.0"
+  },
+  "type": "module"
+}
