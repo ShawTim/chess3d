@@ -38,9 +38,25 @@ export function squareToWorld(sq, y = 0, target = new THREE.Vector3()) {
 /** World-space centre of the board, used for camera framing and light targets. */
 export const BOARD_CENTER = new THREE.Vector3(0, 0, 0);
 
-/** Is (file+rank) even, i.e. a "dark" square? a8 is dark in real chess. */
+/**
+ * Is this square one of the dark ones?
+ *
+ * Board indices run 0 = a8 to 63 = h1, so the file is `sq & 7` and the rank
+ * index (0 at rank 8) is `sq >> 3`.
+ *
+ * The parity is pinned by the standard: a1 is DARK and h1 is LIGHT ("light
+ * square on the right"), which puts the white queen on the light d1 — "queen on
+ * her own colour". Working that through, a square is dark when the rank and file
+ * indices have OPPOSITE parity, i.e. when their sum is ODD.
+ *
+ * This was inverted for most of the project's life, so every square rendered the
+ * wrong colour and the board read as flipped to anyone who plays. It is purely
+ * cosmetic — move generation was never affected — which is exactly why it
+ * survived so long: the tests cover rules and geometry, and a rendered board
+ * looks plausible either way. `tools/check-board-colours.mjs` asserts it now.
+ */
 export function isDarkSquare(sq) {
-  return (((sq >> 3) + (sq & 7)) & 1) === 0;
+  return (((sq >> 3) + (sq & 7)) & 1) === 1;
 }
 
 /**

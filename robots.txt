@@ -1,0 +1,11 @@
+# Chess3D is a single-page static app.
+#
+# Everything under the site is public and there is no private or user-specific
+# content, so crawling is unrestricted. The sitemap is declared because it is a
+# single-URL site under a subpath, which is exactly the case a sitemap helps
+# crawlers confirm.
+
+User-agent: *
+Allow: /
+
+Sitemap: https://shawt.im/chess3d/sitemap.xml

@@ -6,6 +6,8 @@ calls, no network requests at runtime, and no external assets. Everything —
 textures, geometry, sound effects and the chess engine itself — is generated or
 computed in the browser.
 
+**Play it now:** <https://shawt.im/chess3d/>
+
 ![Chess3D](docs/screenshot.png)
 
 ## Quick start
@@ -217,6 +219,14 @@ Four suites run in plain Node:
   merge that flattened its shading, and ears seated inside the skull.
 - `tests/capture.test.mjs` — the view layer, run headlessly against a stubbed
   canvas: a capture must remove the captured piece, not the capturing one.
+- `tests/board.test.mjs` — the board's square colours, asserted against the rules
+  of chess rather than against the implementation: a1 dark, h1 light, the queen on
+  her own colour. This caught a real bug that had inverted every square for most of
+  the project's life and survived repeated visual review, because nothing checked
+  it and a rendered board looks plausible either way.
+- `tests/seo.test.mjs` — the social and search metadata: absolute og:image URLs,
+  a canonical matching the deployed host and subpath, structured data that parses,
+  and every referenced icon present on disk.
 
 ### Inspecting the geometry
 
@@ -231,21 +241,67 @@ Four suites run in plain Node:
 
 ## Deployment
 
-Copy the repository root to any static host (GitHub Pages, Netlify, Cloudflare
-Pages, S3, nginx). No build step is required.
+The app is static files, so any static host works: GitHub Pages, Netlify,
+Cloudflare Pages, S3, nginx. There is no build step.
 
-Files that must ship:
+**Live:** <https://shawt.im/chess3d/>
 
+### What to publish
+
+Everything except the development-only paths:
+
+| Path | Why it ships |
+| --- | --- |
+| `index.html` | the page, including all SEO and social metadata |
+| `styles.css` | the UI styling |
+| `src/` | the engine, renderer, HUD and AI worker |
+| `vendor/` | Three.js, vendored so nothing loads from a CDN |
+| `docs/` | the social card, app icons and README screenshot |
+| `robots.txt` | crawler policy and sitemap pointer |
+| `sitemap.xml` | the single URL, for search engines |
+| `site.webmanifest` | app name, icons and theme colour for install |
+| `.nojekyll` | **required on GitHub Pages** — without it Jekyll processing can drop files |
+
+Development-only, safe to exclude: `node_modules/`, `tests/`, `tools/`,
+`package.json`, `package-lock.json`.
+
+### Host requirements
+
+Two things must be true of the host, and both are worth checking because they
+fail in ways that are easy to miss:
+
+1. **`.js` must be served with a JavaScript MIME type.** The page uses a module
+   worker, and a wrong content type stops the AI worker loading. Every common
+   static host does this correctly.
+2. **The site may live under a subpath.** All asset paths are relative and the
+   import map points at `./vendor/...`, so the app works at `/chess3d/` as well
+   as at a domain root. The absolute URLs in `index.html` (canonical, `og:image`,
+   sitemap) are the one place a subpath is hard-coded — update those four values
+   if you host it somewhere else.
+
+### GitHub Pages
+
+Publish the repository root from the `main` branch. `.nojekyll` is already
+committed. If you use a custom domain, set it in the repository's Pages settings
+and add a `CNAME` file containing the domain.
+
+### Social previews
+
+`docs/og-image.png` (1200x630) is referenced by absolute URL, and `og:image`
+points at it. After changing it, re-scrape the URL with the
+[Facebook Sharing Debugger](https://developers.facebook.com/tools/debug/) or the
+[Twitter Card Validator](https://cards-dev.twitter.com/validator) to clear the
+cached preview. `npm test` includes `tests/seo.test.mjs`, which fails if the
+image goes missing or the URLs drift from the deployed origin.
+
+### Regenerating the images
+
+```bash
+python3 tools/make-social-images.py   # needs Pillow and docs/hero-render.png
 ```
-index.html  styles.css  src/  vendor/
-```
 
-The following are development-only and can be excluded: `node_modules/`,
-`tests/`, `tools/`, `package.json`, `package-lock.json`.
-
-Because the page uses module workers, the host must serve `.js` with a
-JavaScript MIME type (all common static hosts do). `tools/serve.mjs` is a
-convenience server for local development and is not part of the deployed app.
+The script composes the card from a captured 3D render, so it can be rebuilt at
+any time rather than being a hand-edited binary.
 
 ## Browser support
 

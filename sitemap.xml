@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  One URL: the app is a single page.
+
+  The absolute URL includes the /chess3d/ subpath because the site is hosted as a
+  project under the custom domain. A sitemap with a wrong root silently fails
+  validation in Search Console, so the hostname and path are both explicit.
+
+  lastmod is intentionally omitted rather than faked: it should reflect a
+  meaningful content change, and inventing a value per deploy trains crawlers to
+  ignore it.
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://shawt.im/chess3d/</loc>
+    <changefreq>monthly</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>

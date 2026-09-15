@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "node tests/perft.test.mjs && node tests/ai.test.mjs && node tests/geometry.test.mjs && node tests/capture.test.mjs",
+    "test": "node tests/perft.test.mjs && node tests/ai.test.mjs && node tests/geometry.test.mjs && node tests/capture.test.mjs && node tests/board.test.mjs && node tests/seo.test.mjs",
     "serve": "node tools/serve.mjs"
   },
   "keywords": [],

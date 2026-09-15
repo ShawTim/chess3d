@@ -1,0 +1,31 @@
+{
+  "name": "Chess3D",
+  "short_name": "Chess3D",
+  "description": "A cinematic 3D chess game played against an offline AI opponent.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#08090c",
+  "theme_color": "#08090c",
+  "categories": ["games", "entertainment"],
+  "icons": [
+    {
+      "src": "./docs/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./docs/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "./docs/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ]
+}

@@ -3,10 +3,96 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>Chess3D — Three.js Chess vs Offline AI</title>
-<meta name="description" content="A cinematic 3D chess game rendered with Three.js, playing against a fully offline AI opponent. No server, no API, no network." />
+
+<!--
+  Social and search metadata.
+
+  Two things are easy to get wrong here and both matter:
+
+  1. og:image MUST be an absolute URL. Crawlers do not resolve relative paths
+     against the page, so a relative src silently produces no preview image.
+  2. The URLs must match where the site actually serves. This project is hosted
+     under a /chess3d/ subpath on a custom domain, so every canonical and og:url
+     below includes it.
+-->
+<title>Chess3D — 3D Chess Against an Offline AI</title>
+<meta name="description" content="A cinematic 3D chess game built with Three.js. Play six difficulty tiers against an engine that runs entirely in your browser — no server, no API, no network, and no build step." />
+<link rel="canonical" href="https://shawt.im/chess3d/" />
+
+<!-- Indexing -->
+<meta name="robots" content="index, follow, max-image-preview:large" />
+<meta name="author" content="ShawTim" />
+<meta name="keywords" content="3D chess, chess game, three.js, offline chess, chess AI, browser chess, WebGL chess, play chess online" />
+
+<!-- Presentation -->
 <meta name="theme-color" content="#08090c" />
 <meta name="color-scheme" content="dark" />
+
+<!-- Open Graph -->
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Chess3D" />
+<meta property="og:url" content="https://shawt.im/chess3d/" />
+<meta property="og:title" content="Chess3D — 3D Chess Against an Offline AI" />
+<meta property="og:description" content="A cinematic 3D chess game built with Three.js. Six difficulty tiers, rendered in real time, powered by an engine that runs entirely in your browser. No server, no API, no network." />
+<meta property="og:image" content="https://shawt.im/chess3d/docs/og-image.png" />
+<meta property="og:image:secure_url" content="https://shawt.im/chess3d/docs/og-image.png" />
+<meta property="og:image:type" content="image/png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="A 3D chess board lit by a warm studio key light, with the pieces cast in sculpted marble and gold." />
+<meta property="og:locale" content="en_US" />
+
+<!-- Twitter / X. summary_large_image renders the 1200x630 card. -->
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="Chess3D — 3D Chess Against an Offline AI" />
+<meta name="twitter:description" content="A cinematic 3D chess game built with Three.js. Six difficulty tiers against an engine that runs entirely in your browser. No server, no API, no network." />
+<meta name="twitter:image" content="https://shawt.im/chess3d/docs/og-image.png" />
+<meta name="twitter:image:alt" content="A 3D chess board with sculpted marble pieces under warm studio lighting." />
+
+<!-- Icons -->
+<link rel="icon" type="image/png" sizes="32x32" href="./docs/favicon-32.png" />
+<!-- An inline SVG fallback so the tab still has an icon if the PNG is unavailable. -->
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90' fill='%23d9b06a'%3E%E2%99%9E%3C/text%3E%3C/svg%3E" />
+<link rel="apple-touch-icon" sizes="180x180" href="./docs/apple-touch-icon.png" />
+<link rel="manifest" href="./site.webmanifest" />
+
+<!--
+  Structured data. WebApplication describes what this actually is: a game you
+  run, not an article you read. isAccessibleForFree and the zero-price offer are
+  accurate rather than decorative — there is nothing to buy and no account.
+-->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "Chess3D",
+  "url": "https://shawt.im/chess3d/",
+  "description": "A cinematic 3D chess game built with Three.js, played against an offline AI opponent with six difficulty tiers.",
+  "applicationCategory": "GameApplication",
+  "operatingSystem": "Any modern browser with WebGL2",
+  "browserRequirements": "Requires WebGL2 and ES module workers.",
+  "isAccessibleForFree": true,
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD"
+  },
+  "featureList": [
+    "Single-player against six AI difficulty tiers",
+    "Complete chess rules including castling, en passant and underpromotion",
+    "Undo, hints and a move list in standard algebraic notation",
+    "Runs entirely offline with no server or API calls",
+    "Cinematic real-time 3D rendering"
+  ],
+  "image": "https://shawt.im/chess3d/docs/og-image.png",
+  "screenshot": "https://shawt.im/chess3d/docs/screenshot.png",
+  "author": {
+    "@type": "Person",
+    "name": "ShawTim",
+    "url": "https://github.com/ShawTim"
+  }
+}
+</script>
 
 <link rel="stylesheet" href="./styles.css" />
 
@@ -28,8 +114,6 @@
   }
 }
 </script>
-
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%E2%99%9E%3C/text%3E%3C/svg%3E" />
 </head>
 <body>
 
@@ -40,7 +124,7 @@
 
 <!-- Loading screen; removed by src/main.js once the first frame is rendered. -->
 <div id="loader">
-  <div class="loader-mark">&#9822;</div>
+  <div class="loader-mark" aria-hidden="true">&#9822;</div>
   <div class="loader-title">Chess3D</div>
   <div class="loader-bar"><span></span></div>
   <div class="loader-note" id="loader-note">Starting</div>
