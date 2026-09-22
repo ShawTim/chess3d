@@ -45,6 +45,8 @@ Any static host works. To deploy, publish the repository root as-is (see
 - Animated moves: pieces slide with a slight arc, knights leap and roll,
   captured pieces dissolve into dust, promotions pop.
 - Synthesised sound effects (wooden knocks, chimes, check sting) via WebAudio.
+- A phone layout that collapses both side panels into an on-demand sheet, so the
+  board gets the screen; framing adapts to the viewport shape.
 - Camera presets that solve their own framing against the live UI layout, so the
   whole board stays visible at any window size.
 
@@ -59,9 +61,10 @@ Any static host works. To deploy, publish the repository root as-is (see
 
 | Input | Action |
 | --- | --- |
-| Click a piece, then a destination | Move |
+| Click / tap a piece, then a destination | Move |
 | Drag on the board | Orbit the camera |
-| Scroll | Zoom |
+| Scroll or pinch | Zoom |
+| Tap **Menu** (phone) | Open difficulty, side, move list and captured pieces |
 | `U` | Undo |
 | `H` | Hint |
 | `N` | New game |
@@ -238,6 +241,34 @@ Four suites run in plain Node:
 | `knight_render.mjs` | the knight mesh as an ASCII side elevation |
 | `shading_audit.mjs` | normal deviation per piece (0 deg = flat-shaded, >1 deg = smooth) |
 | `mesh_audit.mjs` | signed volume and edge topology per piece (winding, watertightness) |
+
+
+### Checking mobile layout
+
+`tools/dev/mobile-harness.html` runs the app inside an iframe at real device
+sizes, one at a time (`?only=ip14`), and reports the projected board rect, the
+panel rects, and the on-screen size of one board square. It exists because the
+mobile layout cannot be judged by eye — the failures it found were numbers:
+the board overflowing by 29px, panels overlapping it, and a square 21.9px across.
+
+```bash
+npm run serve   # then open /tools/dev/mobile-harness.html?only=ip14
+```
+
+Measured square sizes, all five viewports with zero overflow and no panel overlap:
+
+| Device | Square |
+| --- | --- |
+| iPhone SE 375x667 | 36.2px |
+| iPhone 14 390x844 | 39.4px |
+| Pixel 7 412x915 | 42.7px |
+| iPad mini 744x1133 | 74.4px |
+| iPhone landscape 844x390 | 26.6px (81.8px after pinch) |
+
+Landscape stays smaller because the space between the bars is only 276px of a
+390px screen — that is geometry, not a defect. Pinch-zoom is the answer there, and
+the camera also tilts towards top-down on short wide viewports so the squares
+project as large as the band allows.
 
 ## Deployment
 
