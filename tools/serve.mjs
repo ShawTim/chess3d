@@ -49,9 +49,6 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, {
       'content-type': TYPES[ext] || 'application/octet-stream',
       'cache-control': 'no-cache',
-      // Required for module workers and high-resolution timers.
-      'cross-origin-opener-policy': 'same-origin',
-      'cross-origin-embedder-policy': 'require-corp',
     });
     fs.createReadStream(full).pipe(res);
   });

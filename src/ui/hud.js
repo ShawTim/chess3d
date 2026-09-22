@@ -81,7 +81,16 @@ export class Hud {
     sideRow.append(this.sideWhite, this.sideBlack);
     this.left.appendChild(sideRow);
 
-    this.root.appendChild(this.left);
+    // The side panels are wrapped so a phone can present them as one slide-up
+    // sheet the player opens on demand. On desktop the wrapper is
+    // `display: contents`, which removes it from layout entirely: the grid places
+    // both panels exactly where it did before, so desktop is unaffected.
+    //
+    // This exists because on a phone the two panels plus the bars covered almost
+    // the whole screen. Measured on an 844x390 landscape viewport they left about
+    // 150px for the board, and in portrait the board was squeezed to a strip.
+    this.sheet = el('div', 'sheet');
+    this.sheet.appendChild(this.left);
 
     // --------------------------------------------------------- right panel --
     this.right = el('aside', 'panel panel-right');
@@ -102,17 +111,32 @@ export class Hud {
     );
     this.right.appendChild(this.capturedWrap);
 
-    this.root.appendChild(this.right);
+    this.sheet.appendChild(this.right);
+    this.root.appendChild(this.sheet);
+
+    // Backdrop behind the open sheet; clicking it closes the sheet. Inert on
+    // desktop, where the sheet is never collapsed.
+    this.sheetBackdrop = el('div', 'sheet-backdrop');
+    this.sheetBackdrop.addEventListener('click', () => this.closeSheet());
+    this.root.appendChild(this.sheetBackdrop);
 
     // ------------------------------------------------------------- bottom --
     this.bottom = el('div', 'bottombar');
+
+    // The sheet button is the mobile replacement for the two side panels: it
+    // opens difficulty, side selection, the move list and captured pieces in one
+    // overlay. Hidden on desktop by CSS, where both panels are always visible.
+    this.btnSheet = el('button', 'btn sheet-toggle', 'Menu');
+    this.btnSheet.setAttribute('aria-label', 'Open settings and move list');
+    this.btnSheet.setAttribute('aria-expanded', 'false');
+    this.btnSheet.addEventListener('click', () => this.toggleSheet());
 
     this.btnUndo = this.actionButton('Undo', () => this.cb.onUndo?.());
     this.btnHint = this.actionButton('Hint', () => this.cb.onHint?.());
     this.btnFlip = this.actionButton('Flip view', () => this.cb.onFlip?.(true));
     this.btnNew = this.actionButton('New game', () => this.cb.onRestart?.(), 'primary');
 
-    this.bottom.append(this.btnUndo, this.btnHint, this.btnFlip, this.btnNew);
+    this.bottom.append(this.btnSheet, this.btnUndo, this.btnHint, this.btnFlip, this.btnNew);
 
     // Camera view presets. These are labelled with a camera glyph rather than
     // plain "White"/"Black", which would read as a side selector and collide
@@ -179,6 +203,43 @@ export class Hud {
 
   sectionTitle(text) {
     return el('h3', 'panel-title', text);
+  }
+
+  /* ------------------------------------------------------------- mobile sheet -- */
+
+  /**
+   * The collapsible panel, used on phones.
+   *
+   * On a phone the two side panels plus the top and bottom bars covered nearly
+   * the whole screen — measured on an 844x390 landscape viewport they left about
+   * 150px for the board. Collapsing them into an on-demand sheet gives the board
+   * the screen, which is the whole point of the app.
+   *
+   * These methods are harmless on desktop: the sheet is `display: contents` there
+   * so both panels are always laid out, and the toggle button is hidden, so
+   * opening a "sheet" simply adds a class that nothing styles.
+   */
+  toggleSheet() {
+    if (this.sheet.classList.contains('open')) this.closeSheet();
+    else this.openSheet();
+  }
+
+  openSheet() {
+    this.sheet.classList.add('open');
+    this.sheetBackdrop.classList.add('show');
+    this.btnSheet?.setAttribute('aria-expanded', 'true');
+    this.cb.onSheetToggle?.(true);
+  }
+
+  closeSheet() {
+    this.sheet.classList.remove('open');
+    this.sheetBackdrop.classList.remove('show');
+    this.btnSheet?.setAttribute('aria-expanded', 'false');
+    this.cb.onSheetToggle?.(false);
+  }
+
+  get sheetOpen() {
+    return this.sheet.classList.contains('open');
   }
 
   labeledRow(label, content) {

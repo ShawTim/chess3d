@@ -617,68 +617,197 @@ canvas#scene:active { cursor: grabbing; }
   100% { border-color: var(--border); box-shadow: 0 18px 50px rgba(0, 0, 0, 0.48); }
 }
 
+/* ------------------------------------------------------------------ sheet -- */
+/*
+  The wrapper around both side panels.
+
+  Desktop: display:contents removes this element from the box tree entirely, so
+  the grid lays out .panel-left and .panel-right exactly as it did before the
+  wrapper existed. The wrapper costs the desktop nothing.
+
+  Mobile: it becomes a slide-up sheet (see the media queries below).
+*/
+.sheet { display: contents; }
+
+/* Inert until a phone opens the sheet. */
+.sheet-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 25;
+  background: rgba(4, 5, 8, 0.55);
+  backdrop-filter: blur(3px);
+  opacity: 0;
+  transition: opacity 0.25s;
+}
+.sheet-backdrop.show { opacity: 1; }
+
+/* Hidden on desktop, where both panels are permanently visible. */
+.sheet-toggle { display: none; }
+
 /* --------------------------------------------------------------- responsive -- */
 
+/*
+  Tablet: a single column, and the side panels stay put but narrow.
+  Below 900px the panels collapse into a sheet instead — see below.
+*/
 @media (max-width: 1180px) {
   .panel-left { width: 208px; }
   .panel-right { width: 226px; }
   .engine-info { display: none; }
 }
 
+/*
+  Phone and small tablet: the board gets the screen.
+
+  Both side panels move into the sheet, which slides up from the bottom when the
+  player taps Menu. Nothing overlaps the board, and the bars stay thin so the
+  playing area is as large as the viewport allows.
+*/
 @media (max-width: 900px) {
   #ui {
-    padding: 9px;
+    padding: 8px;
     gap: 8px;
+    /* Two rows only. The canvas is position:fixed and the sheet/overlays are
+       fixed too, so the grid's only in-flow children are the two bars — a third
+       row would be empty, and naming a row that does not exist put the bottom
+       bar in a 1fr track that stretched it over the whole screen. */
     grid-template-columns: 1fr;
     grid-template-areas:
       "top"
-      "right"
       "bottom";
+    grid-template-rows: auto auto;
+    align-content: space-between;
   }
-  .panel-left {
-    position: fixed;
-    left: 9px;
-    right: 9px;
-    top: auto;
-    bottom: 76px;
-    width: auto;
-    flex-direction: row;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px;
-    z-index: 20;
-    max-height: none;
-  }
-  .panel-left .panel-title { display: none; }
-  .panel-left .difficulty-list { flex: 1; min-width: 210px; grid-template-columns: repeat(3, 1fr); }
-  .panel-left .blurb { display: none; }
-  .panel-left .segmented { flex: 0 0 130px; }
 
-  .panel-right {
-    width: auto;
-    max-height: 32vh;
-    grid-area: right;
-    align-self: stretch;
+  /* The sheet: off-screen until opened. */
+  .sheet {
+    display: block;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 30;
+    max-height: 68vh;
+    padding: 14px 14px calc(14px + env(safe-area-inset-bottom));
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    background: linear-gradient(180deg, rgba(20, 22, 29, 0.97), rgba(12, 13, 18, 0.99));
+    backdrop-filter: blur(20px) saturate(1.2);
+    border-top: 1px solid var(--border-strong);
+    border-radius: 18px 18px 0 0;
+    box-shadow: 0 -18px 50px rgba(0, 0, 0, 0.55);
+    transform: translateY(101%);
+    transition: transform 0.3s cubic-bezier(0.22, 0.9, 0.3, 1);
   }
-  .move-scroll { max-height: 20vh; }
-  .topbar { padding: 9px 14px; gap: 12px; }
+  .sheet.open { transform: translateY(0); }
+
+  /* Panels inside the sheet: full width, stacked, no fixed positioning. */
+  .panel-left,
+  .panel-right {
+    position: static;
+    width: auto;
+    max-width: none;
+    max-height: none;
+    align-self: auto;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    backdrop-filter: none;
+  }
+  .panel-left { flex-direction: column; }
+  .panel-left .panel-title,
+  .panel-left .blurb { display: block; }
+  .panel-left .difficulty-list {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+    min-width: 0;
+  }
+  .panel-left .segmented { display: flex; }
+  .difficulty-list { margin-bottom: 10px; }
+  .panel-right { margin-top: 4px; }
+  .move-scroll { max-height: 26vh; }
+  .captured { display: flex; }
+
+  /* Roomier rows for thumbs. */
+  .diff-btn { padding: 10px 11px; }
+  .diff-name { font-size: 12px; }
+  .seg-btn { padding: 10px 12px; }
+
+  /* The sheet's own toggle lives in the bottom bar. */
+  .sheet-toggle { display: inline-flex; }
+  .sheet-backdrop { display: block; pointer-events: none; }
+  .sheet-backdrop.show { pointer-events: auto; }
+
+  /* Thin bars: every pixel here is a pixel the board does not get. */
+  .topbar { padding: 7px 12px; gap: 10px; }
   .brand-text { display: none; }
-  .status { min-width: 130px; }
-  .bottombar { padding: 7px 9px; gap: 6px; row-gap: 6px; }
-  .btn { padding: 7px 11px; font-size: 11.5px; }
-  .thinking, .selection-info { bottom: 84px; }
-  .toast { bottom: 128px; }
+  .status { min-width: 0; flex: 1; }
+  .status-main { font-size: 13px; }
+  .status-sub { display: none; }
+  .bottombar {
+    /* stretch, not the desktop's centre: centring sizes the bar to its content
+       (770px of buttons on a 375px screen) and overflows the page. */
+    justify-self: stretch;
+    max-width: 100%;
+    padding: 7px 8px calc(7px + env(safe-area-inset-bottom));
+    gap: 6px;
+    flex-wrap: nowrap;
+    /* flex-start so the first button is not clipped beyond reach when the row
+       is wider than the screen and has to scroll. */
+    justify-content: flex-start;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .bottombar::-webkit-scrollbar { display: none; }
+  .btn {
+    padding: 10px 13px;
+    font-size: 12.5px;
+    /* Comfortable thumb target. */
+    min-height: 40px;
+    white-space: nowrap;
+  }
+  .view-presets { flex-shrink: 0; }
+
+  /* Overlays sit above the bottom bar. */
+  .thinking, .selection-info { bottom: calc(72px + env(safe-area-inset-bottom)); }
+  .toast { bottom: calc(124px + env(safe-area-inset-bottom)); }
+  .selection-info { max-width: 92vw; white-space: normal; text-align: center; }
 }
 
+/*
+  Small phones: trim further and make the difficulty grid two columns so the
+  labels stay readable rather than squeezing six buttons into three narrow ones.
+*/
 @media (max-width: 560px) {
-  .view-presets { display: none; }
-  .panel-left .difficulty-list { grid-template-columns: repeat(3, 1fr); }
-  .diff-btn { padding: 6px 7px; }
-  .diff-name { font-size: 11px; }
-  .diff-elo { display: none; }
-  .captured { display: none; }
+  #ui { padding: 6px; gap: 6px; }
+  .panel-left .difficulty-list { grid-template-columns: repeat(2, 1fr); }
+  .diff-name { font-size: 11.5px; }
+  .diff-elo { display: block; font-size: 9px; }
+  .sheet { max-height: 74vh; }
   .modal-card { padding: 26px 20px 20px; }
   .modal-title { font-size: 22px; }
+  .modal-actions { flex-direction: column; }
+  .modal-actions .btn { width: 100%; }
+}
+
+/*
+  Landscape phones: vertical space is the scarce resource, so the sheet is
+  shorter and the bars get even thinner. The board keeps whatever is left.
+*/
+@media (max-height: 480px) and (orientation: landscape) {
+  #ui { padding: 5px; gap: 5px; }
+  .topbar { padding: 4px 10px; }
+  .status-main { font-size: 12px; }
+  .bottombar { padding: 4px 6px; }
+  .btn { padding: 7px 10px; font-size: 11.5px; min-height: 34px; }
+  .sheet { max-height: 84vh; }
+  .move-scroll { max-height: 30vh; }
+  .thinking, .selection-info { bottom: 54px; }
+  .toast { bottom: 100px; }
 }
 
 /* Respect users who ask for less motion. */

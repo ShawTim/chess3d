@@ -121,6 +121,12 @@ async function boot() {
       if (on) audio.playUi();
     },
     onQualityToggle: (on) => rig.setCinematic(on),
+    // Opening the mobile sheet disables camera input: the sheet is a modal
+    // surface, and an orbit drag that started on it should not spin the board
+    // behind it. Closing restores control.
+    onSheetToggle: (open) => {
+      cameraRig.controls.enabled = !open;
+    },
   });
 
   // ------------------------------------------------------------ controller --
@@ -143,26 +149,44 @@ async function boot() {
   let pointerDown = null;
   let hoverSquare = null;
 
+  // Touch needs a more forgiving definition of "a tap" than a mouse does. The
+  // previous threshold of 6px was tuned for a mouse and rejects a lot of real
+  // finger taps, because a finger rolls a few pixels even when the player means
+  // to tap straight down. Measured on a phone, a square is only about 30-45 CSS
+  // px across, so a 6px slop is a substantial fraction of the target.
+  const isCoarsePointer = () => window.matchMedia?.('(pointer: coarse)').matches ?? false;
+  const TAP_SLOP_PX = () => (isCoarsePointer() ? 14 : 6);
+  const TAP_TIME_MS = () => (isCoarsePointer() ? 900 : 700);
+
   canvas.addEventListener('pointerdown', (e) => {
-    pointerDown = { x: e.clientX, y: e.clientY, time: performance.now() };
+    // A second finger means a pinch (zoom), not a tap: abandon the pending tap so
+    // the gesture does not also register as a board click on release.
+    if (pointerDown) { pointerDown = null; return; }
+    pointerDown = { x: e.clientX, y: e.clientY, time: performance.now(), id: e.pointerId };
     audio.unlock();
   });
 
+  canvas.addEventListener('pointercancel', () => { pointerDown = null; });
+
   canvas.addEventListener('pointerup', (e) => {
-    if (!pointerDown) return;
+    if (!pointerDown || e.pointerId !== pointerDown.id) return;
     const moved = Math.hypot(e.clientX - pointerDown.x, e.clientY - pointerDown.y);
     const elapsed = performance.now() - pointerDown.time;
     pointerDown = null;
 
-    // Only treat it as a click if the pointer barely moved: this preserves
-    // camera orbiting, which also begins with a pointerdown on the canvas.
-    if (moved > 6 || elapsed > 700) return;
+    // Only treat it as a tap if the finger barely moved. Camera orbiting also
+    // begins with a pointerdown here, so a drag must not select a square.
+    if (moved > TAP_SLOP_PX() || elapsed > TAP_TIME_MS()) return;
 
     const square = pickSquare(e);
     if (square !== null) controller.onSquareClick(square);
   });
 
+  // Hover highlighting is a mouse affordance. On a touch screen there is no
+  // hover, and a synthetic pointermove during a drag would flicker highlights
+  // across the board, so it is skipped for coarse pointers.
   canvas.addEventListener('pointermove', (e) => {
+    if (e.pointerType === 'touch') return;
     const square = pickSquare(e);
     if (square === hoverSquare) return;
     hoverSquare = square;

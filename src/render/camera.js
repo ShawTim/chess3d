@@ -43,29 +43,94 @@ const SAFE_MARGIN = 14;
 const easeInOutCubic = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 
 /**
- * Measure the vertical band of the viewport not covered by UI chrome.
- * Falls back to sensible insets when the HUD has not been built yet.
+ * The rectangle of the viewport that is not covered by UI chrome.
+ *
+ * The panels MOVE between layouts, so their position must be detected rather than
+ * assumed. On desktop, `.panel-left` and `.panel-right` are columns down the
+ * sides. On a phone the stylesheet lifts both out of the grid: the left panel
+ * becomes a bar across the bottom and the right panel moves to the top.
+ *
+ * The previous version assumed the desktop arrangement unconditionally, so on a
+ * phone it computed `left = fullWidth + margin` and `right = smallX - margin` — an
+ * INVERTED band that nothing can fit inside. The solver then fell through to a
+ * blind fallback distance, which is why the board overflowed the screen
+ * horizontally on narrow devices while the code looked reasonable.
+ *
+ * Edges are insets only where a panel actually sits, decided by comparing the
+ * panel's rect to the viewport rather than by matching a breakpoint, so the two
+ * cannot drift apart if the CSS changes.
  */
 function safeBand() {
-  const h = window.innerHeight;
-  let top = 96;
-  let bottom = h - 96;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
 
-  const topbar = document.querySelector('.topbar');
-  if (topbar) top = Math.max(top, topbar.getBoundingClientRect().bottom + SAFE_MARGIN);
+  let top = 88;
+  let bottom = vh - 88;
+  let left = 20;
+  let right = vw - 20;
 
-  const bottomBar = document.querySelector('.bottombar');
-  if (bottomBar) bottom = Math.min(bottom, bottomBar.getBoundingClientRect().top - SAFE_MARGIN);
-
-  const left = document.querySelector('.panel-left');
-  const right = document.querySelector('.panel-right');
-
-  return {
-    top,
-    bottom: Math.max(bottom, top + 120),
-    left: left ? left.getBoundingClientRect().right + SAFE_MARGIN : 24,
-    right: right ? right.getBoundingClientRect().left - SAFE_MARGIN : window.innerWidth - 24,
+  const rectOf = (sel) => {
+    const el = document.querySelector(sel);
+    if (!el) return null;
+    const cs = window.getComputedStyle(el);
+    if (cs.display === 'none' || cs.visibility === 'hidden') return null;
+    const r = el.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2) return null;
+    return r;
   };
+
+  const topbar = rectOf('.topbar');
+  if (topbar && topbar.height < vh * 0.4) {
+    top = Math.max(top, topbar.bottom + SAFE_MARGIN);
+  }
+
+  const bottomBar = rectOf('.bottombar');
+  if (bottomBar && bottomBar.height < vh * 0.4) {
+    bottom = Math.min(bottom, bottomBar.top - SAFE_MARGIN);
+  }
+
+  // A side panel narrows the horizontal band only if it is genuinely a SIDE
+  // column: taller than it is wide, and hugging one edge. A panel pinned across
+  // the bottom is wide and short, so it must not be treated as a column.
+  const isSideColumn = (r) => r && r.height > r.width && r.width < vw * 0.42;
+
+  const leftPanel = rectOf('.panel-left');
+  if (isSideColumn(leftPanel) && leftPanel.left < vw * 0.35) {
+    left = Math.max(left, leftPanel.right + SAFE_MARGIN);
+  }
+
+  const rightPanel = rectOf('.panel-right');
+  if (isSideColumn(rightPanel) && rightPanel.right > vw * 0.65) {
+    right = Math.min(right, rightPanel.left - SAFE_MARGIN);
+  }
+
+  // A panel spanning most of the width at the top or bottom eats into the
+  // vertical band, whichever panel it happens to be.
+  for (const p of [leftPanel, rightPanel]) {
+    if (!p) continue;
+    const spansWidth = p.width > vw * 0.5;
+    if (!spansWidth) continue;
+    if (p.top > vh * 0.45) bottom = Math.min(bottom, p.top - SAFE_MARGIN);
+    if (p.bottom < vh * 0.35) top = Math.max(top, p.bottom + SAFE_MARGIN);
+  }
+
+  // Never return an inverted or degenerate band. If it is inverted the solver has
+  // nothing to fit into and silently falls back to an arbitrary distance, which is
+  // exactly how the board ended up off-screen on phones.
+  if (bottom - top < 160) {
+    const mid = (top + bottom) / 2;
+    const half = Math.max(80, Math.min((vh - 16) / 2, (bottom - top) / 2 + 50));
+    top = Math.max(8, mid - half);
+    bottom = Math.min(vh - 8, mid + half);
+  }
+  if (right - left < 160) {
+    const mid = (left + right) / 2;
+    const half = Math.max(80, Math.min((vw - 16) / 2, (right - left) / 2 + 50));
+    left = Math.max(8, mid - half);
+    right = Math.min(vw - 8, mid + half);
+  }
+
+  return { top, bottom, left, right };
 }
 
 export class CameraRig {
@@ -114,7 +179,31 @@ export class CameraRig {
     const h = this.domElement.clientHeight || window.innerHeight;
     const band = safeBand();
 
-    const dir = new THREE.Vector3(...preset.dir).normalize();
+    let dir = new THREE.Vector3(...preset.dir).normalize();
+
+    // On a short, wide viewport (a phone in landscape) a shallow camera wastes most
+    // of the width: the board projects as a wide, flat trapezoid, so its HEIGHT
+    // becomes the binding constraint and the squares stay small. Measured on an
+    // 844x390 viewport the board used only 31% of the available width, giving 27px
+    // squares — below a comfortable thumb target.
+    //
+    // Tilting the camera towards top-down makes the projection closer to square,
+    // which fits that shape of viewport far better. The tilt is applied to the
+    // direction only when the aspect ratio is wide AND the viewport is short, so
+    // portrait phones and desktop are unaffected.
+    const aspect = w / Math.max(1, h);
+    if (aspect > 1.5 && h < 560) {
+      // 0.88 is close to top-down, chosen by measurement: a landscape phone has a
+      // wide, short band (276px tall on an 844x390 viewport) and the board only
+      // uses its width, so what matters is making the projection as close to
+      // SQUARE as possible. A square projection fills that band's height and
+      // therefore maximises the square size. Measured: 26.6px per square at 0.62,
+      // which is below a comfortable thumb target.
+      const steepen = THREE.MathUtils.clamp((aspect - 1.5) * 1.3, 0, 0.88);
+      const flat = new THREE.Vector3(dir.x, 0, dir.z).normalize();
+      const tilted = flat.clone().multiplyScalar(1 - steepen).setY(steepen).normalize();
+      dir = tilted;
+    }
 
     // Points on the board that must stay visible.
     const points = [];
@@ -191,9 +280,23 @@ export class CameraRig {
     camera.updateProjectionMatrix();
 
     if (!best) {
-      // Nothing fit (an extremely short window). Fall back to a sane wide shot
-      // rather than leaving the camera at a broken distance.
-      best = { distance: MAX_DISTANCE * 0.85, targetY: 0.2 };
+      // Nothing fit the band. Rather than jumping to an arbitrary wide distance
+      // (which is how the board used to end up off-screen), pick the distance that
+      // clips the LEAST — the smallest amount of overflow is the most usable view.
+      let fallback = null;
+      for (let ty = -0.6; ty <= 1.2; ty += 0.2) {
+        for (let d = MIN_DISTANCE; d <= MAX_DISTANCE; d += 0.5) {
+          const m = measure(d, ty);
+          const overflow = Math.max(0, band.top - m.minY)
+            + Math.max(0, m.maxY - band.bottom)
+            + Math.max(0, band.left - m.minX)
+            + Math.max(0, m.maxX - band.right);
+          if (!fallback || overflow < fallback.overflow) {
+            fallback = { distance: d, targetY: ty, overflow };
+          }
+        }
+      }
+      best = fallback ?? { distance: MAX_DISTANCE * 0.85, targetY: 0.2 };
     }
 
     const target = new THREE.Vector3(0, best.targetY, 0);

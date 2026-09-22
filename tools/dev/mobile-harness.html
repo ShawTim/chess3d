@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Chess3D mobile harness</title>
+<style>
+  html, body { margin: 0; background: #111; font-family: system-ui, sans-serif; color: #eee; }
+  h1 { font-size: 12px; padding: 8px; margin: 0; letter-spacing: .08em; text-transform: uppercase; color: #888; }
+  .row { display: flex; gap: 12px; padding: 8px; flex-wrap: wrap; align-items: flex-start; }
+  .dev { display: flex; flex-direction: column; gap: 4px; }
+  .cap { font-size: 11px; color: #9a978f; }
+  iframe { border: 1px solid #333; display: block; background: #000; }
+</style>
+</head>
+<body>
+<h1>Mobile viewport harness — the app runs in a real viewport of each size</h1>
+<div class="row" id="row"></div>
+<script type="module">
+// Each iframe IS a real viewport of that size. The app reads window.innerHeight
+// and the DOM rects of its own document, so an iframe reproduces phone layout
+// faithfully without needing device emulation from the browser driver.
+const DEVICES = [
+  { id: 'se',        w: 375, h: 667,  label: 'iPhone SE 375x667' },
+  { id: 'ip14',      w: 390, h: 844,  label: 'iPhone 14 390x844' },
+  { id: 'pixel',     w: 412, h: 915,  label: 'Pixel 7 412x915' },
+  { id: 'ipad',      w: 744, h: 1133, label: 'iPad mini 744x1133' },
+  { id: 'landscape', w: 844, h: 390,  label: 'iPhone landscape 844x390' },
+];
+
+const row = document.getElementById('row');
+
+// ?only=<id> renders a single viewport.
+//
+// Booting all five at once needs five WebGL contexts and five AI workers on one
+// event loop, which starved the main thread badly enough that frames never
+// finished starting. One at a time is slower to run but actually bootable — and a
+// measurement that cannot boot reports nothing.
+const only = new URLSearchParams(location.search).get('only');
+const toRender = only ? DEVICES.filter((d) => d.id === only) : DEVICES;
+
+// ?scale=0.7 shrinks the device frame with a CSS transform so a whole phone
+// layout fits inside a desktop screenshot. The iframe keeps its real pixel size,
+// so the app inside still lays out at true phone dimensions — only the rendered
+// result is scaled, which is what makes one screenshot able to show the entire
+// layout including the bottom bar that a 1:1 capture would crop.
+const scale = Number(new URLSearchParams(location.search).get('scale') || '1');
+
+for (const d of toRender) {
+  const wrap = document.createElement('div');
+  wrap.className = 'dev';
+  const cap = document.createElement('div');
+  cap.className = 'cap';
+  cap.textContent = d.label;
+  const f = document.createElement('iframe');
+  f.id = 'frame-' + d.id;
+  f.width = String(d.w);
+  f.height = String(d.h);
+  // Absolute path: the harness lives under /tools/dev/, so a relative
+  // '../index.html' resolves to /tools/index.html and 404s.
+  f.src = '/index.html';
+  if (scale !== 1) {
+    f.style.transform = 'scale(' + scale + ')';
+    f.style.transformOrigin = 'top left';
+    // Reserve the scaled footprint so the page does not leave a huge gap.
+    const holder = document.createElement('div');
+    holder.style.width = (d.w * scale) + 'px';
+    holder.style.height = (d.h * scale) + 'px';
+    holder.style.overflow = 'hidden';
+    holder.appendChild(f);
+    wrap.append(cap, holder);
+  } else {
+    wrap.append(cap, f);
+  }
+  row.append(wrap);
+}
+
+const round = (n) => Math.round(n);
+
+/**
+ * Measure one frame's layout.
+ *
+ * Reports where the board projects on screen, the rects of every UI panel, and
+ * the two things that actually decide whether the game is playable on a phone:
+ * whether the board is clipped by the viewport or covered by a panel, and how
+ * many CSS pixels one board square occupies (the tap target size).
+ */
+window.__measure = (id) => {
+  const f = document.getElementById('frame-' + id);
+  if (!f) return { error: 'no frame ' + id };
+  const w = f.contentWindow;
+  const doc = f.contentDocument;
+  const app = w.__chess;
+  if (!app) {
+    const note = doc && doc.getElementById('loader-note');
+    return { booted: false, note: note ? note.textContent : null };
+  }
+
+  const rect = (sel) => {
+    const el = doc.querySelector(sel);
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    const cs = w.getComputedStyle(el);
+    if (cs.display === 'none' || cs.visibility === 'hidden') return { display: cs.display };
+    return {
+      top: round(r.top), bottom: round(r.bottom),
+      left: round(r.left), right: round(r.right),
+      w: round(r.width), h: round(r.height),
+    };
+  };
+
+  const rig = app.rig;
+  const cam = rig.camera;
+  const vw = rig.renderer.domElement.clientWidth;
+  const vh = rig.renderer.domElement.clientHeight;
+
+  // Project the board's bounding box (8 corners plus tall-piece tops).
+  const F = 4.62;
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  const v = cam.position.clone();
+  for (const x of [-F, F]) for (const z of [-F, F]) for (const y of [0, 1.66]) {
+    v.set(x, y, z).project(cam);
+    const sx = (v.x * 0.5 + 0.5) * vw;
+    const sy = (-v.y * 0.5 + 0.5) * vh;
+    minX = Math.min(minX, sx); maxX = Math.max(maxX, sx);
+    minY = Math.min(minY, sy); maxY = Math.max(maxY, sy);
+  }
+
+  const topbar = rect('.topbar');
+  const bottombar = rect('.bottombar');
+  const left = rect('.panel-left');
+  const right = rect('.panel-right');
+
+  const visible = (a, b) => Math.max(0, Math.min(b, vh) - Math.max(a, 0));
+
+  // How many CSS px is one square, across and down? The smaller dimension is the
+  // effective tap target, since a square is only as big as its narrowest side.
+  const boardW = maxX - minX;
+  const boardH = maxY - minY;
+  const squareW = boardW / 8;
+  // The board is viewed at an angle, so a square's on-screen height is roughly
+  // boardH / 8 for the near rank.
+  const squareH = boardH / 8;
+
+  const overlaps = (r, b) => !!r && r.display !== 'none' && !(b.bottom <= r.top || b.top >= r.bottom);
+
+  return {
+    booted: true,
+    viewport: [vw, vh],
+    board: { left: round(minX), right: round(maxX), top: round(minY), bottom: round(maxY) },
+    boardFullyInViewport: minX >= -1 && maxX <= vw + 1 && minY >= -1 && maxY <= vh + 1,
+    boardClippedPx: round(visible(minY, maxY) === (maxY - minY) ? 0 : (maxY - minY) - visible(minY, maxY)),
+    boardCoveredTopPx: topbar && topbar.display !== 'none' ? round(Math.max(0, topbar.bottom - minY)) : 0,
+    boardCoveredBottomPx: bottombar && bottombar.display !== 'none' ? round(Math.max(0, maxY - bottombar.top)) : 0,
+    tapTargetPx: +Math.min(squareW, squareH).toFixed(1),
+    hOverflow: round(Math.max(0, -minX) + Math.max(0, maxX - vw)),
+    panels: { topbar, bottombar, left, right },
+    panelOverlap: {
+      left: overlaps(left, { top: minY, bottom: maxY, left: minX, right: maxX }),
+      right: overlaps(right, { top: minY, bottom: maxY, left: minX, right: maxX }),
+      bottomBarOverBoard: overlaps(bottombar, { top: minY, bottom: maxY, left: minX, right: maxX }),
+    },
+    // Does the page scroll horizontally? A common mobile failure.
+    docScrollWidth: doc.documentElement.scrollWidth,
+    docClientWidth: doc.documentElement.clientWidth,
+    horizontalScroll: doc.documentElement.scrollWidth > doc.documentElement.clientWidth + 1,
+  };
+};
+
+window.__ready = true;
+</script>
+</body>
+</html>
