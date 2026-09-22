@@ -55,9 +55,11 @@ for (const d of toRender) {
   f.id = 'frame-' + d.id;
   f.width = String(d.w);
   f.height = String(d.h);
-  // Absolute path: the harness lives under /tools/dev/, so a relative
-  // '../index.html' resolves to /tools/index.html and 404s.
-  f.src = '/index.html';
+  // Resolve the app's URL from the harness's own location so it works both at a
+  // domain root and under a subpath. A hard-coded '/index.html' resolves to the
+  // domain root, which 404s when the app is deployed at /chess3d/ — and the
+  // harness ships with the app, so it has to work there too.
+  f.src = new URL('../../index.html', location.href).href;
   if (scale !== 1) {
     f.style.transform = 'scale(' + scale + ')';
     f.style.transformOrigin = 'top left';
