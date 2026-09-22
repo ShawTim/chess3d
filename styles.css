@@ -628,8 +628,21 @@ canvas#scene:active { cursor: grabbing; }
   Mobile: it becomes a slide-up sheet (see the media queries below).
 */
 .sheet { display: contents; }
+/*
+  Nothing inside the desktop wrapper intercepts input. It is display:contents on
+  desktop anyway, but the rule also has to be outranked by #ui .sheet.open in the
+  mobile query below, so both carry the ID prefix.
+*/
+#ui .sheet { pointer-events: none; }
 
-/* Inert until a phone opens the sheet. */
+/*
+  Inert until a phone opens the sheet.
+
+  The pointer-events rules carry an explicit #ui prefix so they outrank the
+  blanket rule above. An ID selector beats any number of classes, so a plain
+  .sheet-backdrop.show rule silently loses — which is what stopped the sheet
+  closing when tapped outside on a phone.
+*/
 .sheet-backdrop {
   display: none;
   position: fixed;
@@ -640,7 +653,8 @@ canvas#scene:active { cursor: grabbing; }
   opacity: 0;
   transition: opacity 0.25s;
 }
-.sheet-backdrop.show { opacity: 1; }
+#ui .sheet-backdrop { pointer-events: none; }
+#ui .sheet-backdrop.show { opacity: 1; pointer-events: auto; }
 
 /* Hidden on desktop, where both panels are permanently visible. */
 .sheet-toggle { display: none; }
@@ -738,8 +752,16 @@ canvas#scene:active { cursor: grabbing; }
 
   /* The sheet's own toggle lives in the bottom bar. */
   .sheet-toggle { display: inline-flex; }
-  .sheet-backdrop { display: block; pointer-events: none; }
-  .sheet-backdrop.show { pointer-events: auto; }
+
+  /*
+    Both need #ui to outrank the blanket rule. The open sheet also has to accept
+    input itself, so its scroll area and blurb work — previously only the buttons
+    inside it were clickable, because buttons are the one descendant the blanket
+    rule exempts.
+  */
+  #ui .sheet-backdrop { display: block; }
+  #ui .sheet-backdrop.show { pointer-events: auto; }
+  #ui .sheet.open { pointer-events: auto; }
 
   /* Thin bars: every pixel here is a pixel the board does not get. */
   .topbar { padding: 7px 12px; gap: 10px; }
