@@ -273,12 +273,19 @@ export function createGroundTexture({ size = 512, inner = [0.13, 0.12, 0.14], ou
   return toTexture(canvas, { srgb: true, repeat: 1 });
 }
 
-/** Coordinate letters/digits for the board frame, drawn with transparency. */
+/**
+ * Coordinate letters/digits for the board frame.
+ *
+ * Drawn with a serif face and a soft dark drop shadow so the glyph reads as
+ * ENGRAVED into the timber rather than printed on it. A flat bold sans label
+ * looks like a UI overlay sitting on a chessboard; lettering cut into a board
+ * is a roman capital or a high-contrast serif.
+ */
 export function createLabelTexture(text, {
-  size = 128,
-  color = '#e8dcc6',
-  font = 'bold 72px "Helvetica Neue", Helvetica, Arial, sans-serif',
-  opacity = 0.72,
+  size = 256,
+  color = '#e8d9b6',
+  font = '600 132px "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif',
+  opacity = 0.92,
 } = {}) {
   const canvas = makeCanvas(size);
   const ctx = canvas.getContext('2d');
@@ -286,12 +293,54 @@ export function createLabelTexture(text, {
   ctx.font = font;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
+
+  // The shadow sits a hair down-right, as if the cut caught the key light.
+  ctx.globalAlpha = opacity * 0.55;
+  ctx.fillStyle = '#1a0f07';
+  ctx.fillText(text, size / 2 + size * 0.012, size / 2 + size * 0.042);
+
   ctx.globalAlpha = opacity;
   ctx.fillStyle = color;
   ctx.fillText(text, size / 2, size / 2 + size * 0.03);
+
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 8;
+  return tex;
+}
+
+/**
+ * Soft contact-shadow decal, drawn under every piece.
+ *
+ * The shadow map grounds a piece with a cast shadow, but the area where the
+ * base actually meets the board still needs an occlusion gradient: without it
+ * the piece looks shrink-wrapped onto the surface. This texture is black with a
+ * radial alpha falloff, used on a plane just above the tiles.
+ */
+export function createContactShadowTexture({ size = 128 } = {}) {
+  const canvas = makeCanvas(size);
+  const ctx = canvas.getContext('2d');
+  const img = ctx.createImageData(size, size);
+  const data = img.data;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const dx = (x / size - 0.5) * 2;
+      const dy = (y / size - 0.5) * 2;
+      const d = Math.min(1, Math.hypot(dx, dy));
+      // Dense at the centre and falling off quickly, with a faint ragged edge
+      // so the decal does not read as a perfectly airbrushed circle.
+      const n = fbm(x / size * 5, y / size * 5, 8123, 3) - 0.5;
+      const a = Math.pow(1 - d, 2.1) * (0.86 + n * 0.18);
+      const o = (y * size + x) * 4;
+      data[o] = 0;
+      data[o + 1] = 0;
+      data[o + 2] = 0;
+      data[o + 3] = clamp01(a) * 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
 

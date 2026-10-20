@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Chess3D UX audit</title>
+<style>
+  html, body { margin: 0; background: #0d0d0f; color: #eee; font: 12px/1.5 ui-monospace, monospace; }
+  h1 { font-size: 12px; padding: 10px 12px; margin: 0; letter-spacing: .08em; text-transform: uppercase; color: #8a8a92; }
+  #out { white-space: pre-wrap; padding: 0 12px 24px; }
+  .pass { color: #7fd6a0; }
+  .fail { color: #ff6b57; }
+  iframe { position: fixed; left: -2000px; top: 0; border: 0; }
+</style>
+</head>
+<body>
+<h1>Chess3D UX audit — one real viewport per run</h1>
+<div id="out">loading…</div>
+<script type="module">
+/*
+ * Layout audit for the acceptance criteria that cannot be checked from source:
+ *
+ *   1. the action bar does not overflow horizontally, and every control is
+ *      reachable without scrolling it;
+ *   2. the four floating overlays never overlap each other;
+ *   3. the board is centred in the free band and fills at least one axis.
+ *
+ * Usage:  /tools/dev/ux-audit.html?w=390&h=844
+ *
+ * It renders the real app in an iframe of exactly that size, so the app's own
+ * window.innerWidth / innerHeight and getBoundingClientRect() see a genuine
+ * viewport of those dimensions — the same trick mobile-harness.html uses.
+ */
+const params = new URLSearchParams(location.search);
+const W = Number(params.get('w') || 390);
+const H = Number(params.get('h') || 844);
+
+const out = document.getElementById('out');
+const log = (s, cls = '') => { out.innerHTML += `<span class="${cls}">${s}</span>\n`; };
+out.textContent = '';
+
+const frame = document.createElement('iframe');
+frame.width = String(W);
+frame.height = String(H);
+frame.src = new URL('../../index.html', location.href).href;
+document.body.appendChild(frame);
+
+const waitForBoot = async (w) => {
+  const t0 = performance.now();
+  while (performance.now() - t0 < 30000) {
+    if (w.__chess && w.__chess.controller && w.__chess.controller.phase === 'player') return true;
+    await new Promise((r) => setTimeout(r, 120));
+  }
+  return false;
+};
+
+const rectOf = (w, sel) => {
+  const el = w.document.querySelector(sel);
+  if (!el) return null;
+  const cs = w.getComputedStyle(el);
+  if (cs.display === 'none' || cs.visibility === 'hidden') return null;
+  const r = el.getBoundingClientRect();
+  return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, w: r.width, h: r.height };
+};
+
+const intersects = (a, b) => a && b
+  && !(a.bottom <= b.top + 0.5 || b.bottom <= a.top + 0.5
+    || a.right <= b.left + 0.5 || b.right <= a.left + 0.5);
+
+frame.addEventListener('load', async () => {
+  const w = frame.contentWindow;
+  const booted = await waitForBoot(w);
+  if (!booted) { log('FAIL app did not boot', 'fail'); return; }
+
+  const c = w.__chess;
+  const doc = w.document;
+  const vw = w.innerWidth;
+  const vh = w.innerHeight;
+
+  // Give the framing solver and the first frame a moment.
+  await new Promise((r) => setTimeout(r, 700));
+
+  /* ---------------------------------------------------- 1. action bar -- */
+  const bar = doc.querySelector('.bottombar');
+  const barOverflow = bar.scrollWidth - bar.clientWidth;
+  const viewportOf = (el) => {
+    const r = el.getBoundingClientRect();
+    return r.left >= -0.5 && r.right <= vw + 0.5 && r.top >= -0.5 && r.bottom <= vh + 0.5;
+  };
+  // Every control the contract names must be visible or in the settings sheet.
+  const named = [
+    ['Sound', c.hud.btnSound],
+    ['Cinematic', c.hud.btnQuality],
+    ...c.hud.presetButtons.map((b) => [b.textContent, b]),
+  ];
+  // On phones those live inside the collapsed sheet; open it before measuring.
+  if (vw <= 900 && c.hud.sheet && !c.hud.sheetOpen) c.hud.openSheet();
+  await new Promise((r) => setTimeout(r, 260));
+  const namedInside = named.map(([name, el]) => ({ name, inside: viewportOf(el) }));
+
+  log(`viewport ${vw}x${vh}`);
+  log(`bottombar scrollWidth=${bar.scrollWidth} clientWidth=${bar.clientWidth} overflow=${barOverflow}`,
+    barOverflow <= 1 ? 'pass' : 'fail');
+  log(`bottombar rect ${JSON.stringify(rectOf(w, '.bottombar'))}`);
+  const unreachable = namedInside.filter((n) => !n.inside);
+  log(`named controls in viewport: ${namedInside.length - unreachable.length}/${namedInside.length}`,
+    unreachable.length === 0 ? 'pass' : 'fail');
+  if (unreachable.length) log('  out of view: ' + unreachable.map((n) => n.name).join(', '), 'fail');
+
+  if (vw <= 900) c.hud.closeSheet();
+  await new Promise((r) => setTimeout(r, 200));
+
+  /* ------------------------------------------------------- 2. overlays -- */
+  // Force all four to be visible at once: this is the stress case the old CSS
+  // failed, when "Thinking" and the selection readout shared a bottom offset.
+  c.hud.setThinking(true, 1);
+  c.hud.setSelectionInfo({ square: 'e2', piece: 1, moves: ['e3', 'e4'] });
+  c.hud.showToast('audit toast', 8000);
+  c.hud.setReviewing(0, 'e4');
+  await new Promise((r) => setTimeout(r, 320));
+
+  const boxes = {
+    toast: rectOf(w, '.toast'),
+    thinking: rectOf(w, '.thinking'),
+    selection: rectOf(w, '.selection-info'),
+    review: rectOf(w, '.review-banner'),
+  };
+  const names = Object.keys(boxes);
+  const clashes = [];
+  for (let i = 0; i < names.length; i++) {
+    for (let j = i + 1; j < names.length; j++) {
+      if (intersects(boxes[names[i]], boxes[names[j]])) clashes.push(`${names[i]}/${names[j]}`);
+    }
+  }
+  log(`overlays: ${names.map((n) => `${n}=${boxes[n] ? `[${Math.round(boxes[n].top)}-${Math.round(boxes[n].bottom)}]` : 'hidden'}`).join(' ')}`);
+  log(`overlay intersections: ${clashes.length === 0 ? 'none' : clashes.join(', ')}`,
+    clashes.length === 0 ? 'pass' : 'fail');
+
+  c.hud.setThinking(false);
+  c.hud.setSelectionInfo(null);
+  c.hud.setReviewing(null);
+  c.hud.toast.style.display = 'none';
+  await new Promise((r) => setTimeout(r, 120));
+
+  /* ---------------------------------------------------------- 3. board -- */
+  // The free band is what the framing solver works against; read the same DOM.
+  const topbar = rectOf(w, '.topbar');
+  const bottombar = rectOf(w, '.bottombar');
+  const bandTop = topbar ? topbar.bottom + 14 : 0;
+  const bandBottom = bottombar ? bottombar.top - 14 : vh;
+  const bandCentre = (bandTop + bandBottom) / 2;
+
+  // Project the real geometry the framing solver fits: the frame and felt base,
+  // plus the tall-piece envelope only where a piece can actually stand (±3.5).
+  const cam = c.rig.camera;
+  const F = 4.82;
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  const v = cam.position.clone();
+  const project = (x, y, z) => {
+    v.set(x, y, z).project(cam);
+    const sx = (v.x * 0.5 + 0.5) * vw;
+    const sy = (-v.y * 0.5 + 0.5) * vh;
+    minX = Math.min(minX, sx); maxX = Math.max(maxX, sx);
+    minY = Math.min(minY, sy); maxY = Math.max(maxY, sy);
+  };
+  for (const x of [-F, F]) for (const z of [-F, F]) project(x, 0, z);
+  for (const x of [-3.5, 3.5]) for (const z of [-3.5, 3.5]) project(x, 1.62, z);
+
+  const boardH = maxY - minY;
+  const boardW = maxX - minX;
+  const centreErr = Math.abs((minY + maxY) / 2 - bandCentre);
+  const bandH = bandBottom - bandTop;
+  log(`view offset: enabled=${cam.view?.enabled} offsetY=${(cam.view?.offsetY ?? 0).toFixed(1)} stored=${(c.cameraRig.viewOffsetY ?? 0).toFixed(1)}`,
+    Math.abs((cam.view?.offsetY ?? 0) - (c.cameraRig.viewOffsetY ?? 0)) < 1 ? 'pass' : 'fail');
+  const bandW = vw - 40;
+  const fillW = boardW / bandW;
+  const fillH = boardH / bandH;
+
+  log(`board y ${Math.round(minY)}..${Math.round(maxY)} (h=${Math.round(boardH)}) band ${Math.round(bandTop)}..${Math.round(bandBottom)} (h=${Math.round(bandH)})`);
+  log(`board centre error ${centreErr.toFixed(1)}px = ${(centreErr / vh * 100).toFixed(2)}% of viewport`,
+    centreErr / vh <= 0.03 ? 'pass' : 'fail');
+  log(`board fill width=${(fillW * 100).toFixed(1)}% height=${(fillH * 100).toFixed(1)}%`,
+    Math.max(fillW, fillH) >= 0.70 ? 'pass' : 'fail');
+  log(`board x ${Math.round(minX)}..${Math.round(maxX)} (w=${Math.round(boardW)}) viewport width ${vw}`,
+    (minX >= -0.5 && maxX <= vw + 0.5) ? 'pass' : 'fail');
+
+  log('AUDIT_DONE');
+});
+</script>
+</body>
+</html>

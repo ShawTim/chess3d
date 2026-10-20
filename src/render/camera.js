@@ -16,22 +16,35 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 /** Board half-extent including the decorative frame. */
-const BOARD_EXTENT = 4.62;
+const BOARD_EXTENT = 4.82;
 /** Tallest piece (the king), used to keep finials inside the frame. */
 const TALLEST = 1.62;
+/**
+ * Mirror a camera position through the vertical axis of its target.
+ *
+ * Exported and pure so the flip can be regression-tested without a WebGL
+ * context: it is the whole geometric content of the "Flip" control, and that
+ * control used to silently restart the game.
+ */
+export function flipAround(position, target) {
+  const offset = position.clone().sub(target);
+  offset.applyAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
+  return target.clone().add(offset);
+}
 
 /**
  * View presets. `dir` is the unit-ish direction from the board centre towards
  * the camera; `fov` the field of view used while framing that view.
  */
 export const VIEWS = {
-  white: { dir: [0, 0.86, 0.51], fov: 38 },
-  black: { dir: [0, 0.86, -0.51], fov: 38 },
-  side: { dir: [0.84, 0.54, 0], fov: 38 },
+  // A three-quarter view: high enough to read the whole board, low enough that
+  // the pieces have a silhouette and cast a visible shadow.
+  white: { dir: [0, 0.78, 0.60], fov: 38 },
+  black: { dir: [0, 0.78, -0.60], fov: 38 },
+  side: { dir: [0.86, 0.47, 0.16], fov: 38 },
   top: { dir: [0, 1, 0.02], fov: 34 },
   cinematic: { dir: [0.55, 0.52, 0.65], fov: 34 },
 };
-
 const MIN_POLAR = 0.10;
 const MAX_POLAR = Math.PI * 0.47;
 const MIN_DISTANCE = 5.5;
@@ -178,6 +191,15 @@ export class CameraRig {
     const w = this.domElement.clientWidth || window.innerWidth;
     const h = this.domElement.clientHeight || window.innerHeight;
     const band = safeBand();
+    // A small horizontal reserve keeps the frame clear of the viewport edge even
+    // if the projection is a pixel or two wider than solved.
+    const fitMarginX = Math.max(10, w * 0.02);
+    const fitBand = {
+      top: band.top,
+      bottom: band.bottom,
+      left: band.left + fitMarginX,
+      right: band.right - fitMarginX,
+    };
 
     let dir = new THREE.Vector3(...preset.dir).normalize();
 
@@ -192,35 +214,54 @@ export class CameraRig {
     // direction only when the aspect ratio is wide AND the viewport is short, so
     // portrait phones and desktop are unaffected.
     const aspect = w / Math.max(1, h);
+
+    // Short landscape (a phone on its side) and tall portrait (a phone upright)
+    // are the same problem with different signs: a 38-degree view compresses the
+    // board's depth, so the projection is much wider than it is tall. On a wide
+    // band that wastes height; on a tall band it wastes height too, because the
+    // WIDTH is the binding constraint and the shortened depth leaves a large gap
+    // above and below.
+    //
+    // Tilting towards top-down makes the projection closer to square. On the
+    // 612x893 viewport this took the board from 436px tall in a 783px band to
+    // filling most of it, without changing the square size.
     if (aspect > 1.5 && h < 560) {
-      // 0.88 is close to top-down, chosen by measurement: a landscape phone has a
-      // wide, short band (276px tall on an 844x390 viewport) and the board only
-      // uses its width, so what matters is making the projection as close to
-      // SQUARE as possible. A square projection fills that band's height and
-      // therefore maximises the square size. Measured: 26.6px per square at 0.62,
-      // which is below a comfortable thumb target.
       const steepen = THREE.MathUtils.clamp((aspect - 1.5) * 1.3, 0, 0.88);
       const flat = new THREE.Vector3(dir.x, 0, dir.z).normalize();
-      const tilted = flat.clone().multiplyScalar(1 - steepen).setY(steepen).normalize();
-      dir = tilted;
+      dir = flat.clone().multiplyScalar(1 - steepen).setY(steepen).normalize();
+    } else if (aspect < 1.05) {
+      // Portrait: lean towards a plan view, enough to square up the projection
+      // while keeping a readable three-quarter silhouette.
+      const steepen = THREE.MathUtils.clamp((1.05 - aspect) * 1.5, 0, 0.52);
+      const flat = new THREE.Vector3(dir.x, 0, dir.z).normalize();
+      dir = flat.clone().multiplyScalar(1 - steepen).setY(dir.y + steepen).normalize();
     }
 
     // Points on the board that must stay visible.
+    //
+    // The old set added a TALLEST-height point at every one of the four outer
+    // corners. There is never a piece there (the playing field ends at 3.5), so
+    // the solver was fitting an imaginary 9.2 x 9.2 x 1.6 box and pushed the
+    // board. Height is only needed where a piece can actually stand.
     const points = [];
     for (const x of [-BOARD_EXTENT, BOARD_EXTENT]) {
-      for (const z of [-BOARD_EXTENT, BOARD_EXTENT]) {
+      for (const z of [-BOARD_EXTENT, BOARD_EXTENT]) points.push(new THREE.Vector3(x, 0, z));
+    }
+    for (const x of [-3.5, 0, 3.5]) {
+      for (const z of [-3.5, 0, 3.5]) {
         points.push(new THREE.Vector3(x, 0, z));
         points.push(new THREE.Vector3(x, TALLEST, z));
       }
-    }
-    for (const x of [-4, 0, 4]) points.push(new THREE.Vector3(x, 0, 4));
-    for (const z of [-4, 0, 4]) points.push(new THREE.Vector3(0, TALLEST, z));
+      }
 
     const savedFov = camera.fov;
     camera.fov = preset.fov ?? savedFov;
 
     const probe = camera.clone();
-    const scratch = new THREE.Vector3();
+    // Measure the un-offset projection: the current camera may already carry the
+    // centring offset, and cloning it would make the solver compute a relative
+    // correction that cancels itself out on the next call.
+    probe.clearViewOffset();
 
     /** Project every point and return the screen-space bounds. */
     const measure = (distance, targetY) => {
@@ -244,36 +285,51 @@ export class CameraRig {
       return { minX, maxX, minY, maxY };
     };
 
-    const fits = (m) => m.minY >= band.top && m.maxY <= band.bottom
-      && m.minX >= band.left && m.maxX <= band.right;
+    const fits = (m) => m.minY >= fitBand.top && m.maxY <= fitBand.bottom
+      && m.minX >= fitBand.left && m.maxX <= fitBand.right;
 
-    // Coarse scan first: the feasible distance grows monotonically with the
-    // target height offset, so a simple grid finds the sweet spot reliably.
-    let best = null;
-    const targetYs = [];
-    for (let ty = -1.0; ty <= 2.0; ty += 0.25) targetYs.push(ty);
+    // Choose the framing in two ordered criteria:
+    //
+    //   1. the smallest distance that fits — this is what makes the board fill
+    //      the available band rather than floating in it;
+    //   2. among solutions within a hair of that distance, the one whose
+    //      projected centre is closest to the centre of the band.
+    //
+    // The previous version maximised projected AREA and ignored position, so a
+    // solution pushed hard against the bottom of the band scored the same as a
+    // centred one and the board sat low with dead space above it.
+    const bandCx = (band.left + band.right) / 2;
+    const bandCy = (band.top + band.bottom) / 2;
+    const candidates = [];
 
-    for (const ty of targetYs) {
-      // Find the smallest distance that fits at this target height.
-      let lo = MIN_DISTANCE;
-      let hi = MAX_DISTANCE;
-      for (const d of [lo]) { /* keep lo as a real candidate */ }
-      // Exponential probe outwards, then a short refinement pass.
+    for (let ty = -1.0; ty <= 2.0; ty += 0.25) {
       let chosen = null;
       for (let d = MIN_DISTANCE; d <= MAX_DISTANCE; d += 0.5) {
         if (fits(measure(d, ty))) { chosen = d; break; }
       }
       if (chosen === null) continue;
-      lo = Math.max(MIN_DISTANCE, chosen - 0.5);
-      hi = chosen;
+
+      let lo = Math.max(MIN_DISTANCE, chosen - 0.5);
+      let hi = chosen;
       for (let i = 0; i < 12; i++) {
         const mid = (lo + hi) / 2;
         if (fits(measure(mid, ty))) hi = mid; else lo = mid;
       }
+
       const distance = hi;
       const m = measure(distance, ty);
-      const area = (m.maxX - m.minX) * (m.maxY - m.minY);
-      if (!best || area > best.area) best = { distance, targetY: ty, area, m };
+      const cx = (m.minX + m.maxX) / 2;
+      const cy = (m.minY + m.maxY) / 2;
+      const centerErr = Math.abs(cx - bandCx) / Math.max(1, w)
+        + Math.abs(cy - bandCy) / Math.max(1, h);
+      candidates.push({ distance, targetY: ty, centerErr, m });
+    }
+
+    let best = null;
+    if (candidates.length) {
+      const closest = Math.min(...candidates.map((c) => c.distance));
+      const tied = candidates.filter((c) => c.distance <= closest + 0.06);
+      best = tied.reduce((a, b) => (b.centerErr < a.centerErr ? b : a));
     }
 
     camera.fov = preset.fov ?? savedFov;
@@ -299,9 +355,30 @@ export class CameraRig {
       best = fallback ?? { distance: MAX_DISTANCE * 0.85, targetY: 0.2 };
     }
 
+    // Vertical centring is a PROJECTION offset, not a camera move.
+    //
+    // Lowering the eye to bring the board up also brings the near edge closer,
+    // where it projects wider — which either clips the frame or forces the camera
+    // back, shrinking the board just to centre it. setViewOffset shifts the
+    // image inside the same frustum: the solved fit is preserved, the board is
+    // exactly centred, and the squares keep their size.
+    let viewOffsetY = 0;
+    if (best) {
+      const m = measure(best.distance, best.targetY);
+      const wanted = (m.minY + m.maxY) / 2 - (band.top + band.bottom) / 2;
+      // Shifting the image up by w moves minY and maxY down by w, so the bounds
+      // that keep the board inside the band are [maxY - band.bottom,
+      // minY - band.top] — the reverse of the naive clamp.
+      viewOffsetY = THREE.MathUtils.clamp(
+        wanted,
+        m.maxY - band.bottom,
+        m.minY - band.top,
+      );
+    }
+
     const target = new THREE.Vector3(0, best.targetY, 0);
     const position = target.clone().addScaledVector(dir, best.distance);
-    return { position, target, fov: preset.fov ?? savedFov };
+    return { position, target, fov: preset.fov ?? savedFov, viewOffsetY };
   }
 
   /**
@@ -320,6 +397,7 @@ export class CameraRig {
         position: new THREE.Vector3().set(...(preset.position.toArray ? preset.position.toArray() : preset.position)),
         target: new THREE.Vector3().set(...(preset.target.toArray ? preset.target.toArray() : preset.target)),
         fov: preset.fov ?? this.camera.fov,
+        viewOffsetY: 0,
       };
     }
     return this.frame(preset);
@@ -337,6 +415,7 @@ export class CameraRig {
       toTarget: resolved.target.clone(),
       fromFov: this.camera.fov,
       toFov: resolved.fov,
+      toOffset: resolved.viewOffsetY ?? 0,
       elapsed: 0,
       duration,
     };
@@ -347,14 +426,33 @@ export class CameraRig {
     if (resolved) this.applyResolved(resolved);
   }
 
-  applyResolved({ position, target, fov }) {
+  applyResolved({ position, target, fov, viewOffsetY = 0 }) {
     if (position) this.camera.position.copy(position);
     if (target) this.controls.target.copy(target);
     if (fov) {
       this.camera.fov = fov;
       this.camera.updateProjectionMatrix();
     }
+    this.applyViewOffset(viewOffsetY);
     this.controls.update();
+  }
+
+  /**
+   * Shift the image vertically inside the current frustum.
+   *
+   * This is what centres the board without moving the eye. `offsetY` is in CSS
+   * pixels; positive moves the rendered content up. Projection and raycasting
+   * stay consistent because both use the camera's projection matrix.
+   */
+  applyViewOffset(offsetY) {
+    this.viewOffsetY = offsetY || 0;
+    const w = this.domElement.clientWidth || window.innerWidth;
+    const h = this.domElement.clientHeight || window.innerHeight;
+    if (Math.abs(this.viewOffsetY) < 0.25) {
+      this.camera.clearViewOffset();
+      return;
+    }
+    this.camera.setViewOffset(w, h, 0, this.viewOffsetY, w, h);
   }
 
   /**
@@ -373,6 +471,8 @@ export class CameraRig {
       fromFov: this.camera.fov, toFov: this.camera.fov,
       elapsed: 0, duration, hold,
       returnTo: { position: fromPos.toArray(), target: fromTarget.toArray(), fov: this.camera.fov },
+      // Preserve the centring offset across the focus-in / focus-out cycle.
+      returnOffset: this.viewOffsetY ?? 0,
       phase: 'in',
     };
   }
@@ -383,13 +483,41 @@ export class CameraRig {
     const dir = this.camera.position.clone().sub(this.controls.target).normalize();
     // Only re-solve near-horizontal angles; a user-framed view is left alone.
     const elev = Math.asin(THREE.MathUtils.clamp(dir.y, -1, 1));
-    if (Math.abs(elev) < 0.15 || Math.abs(elev) > 1.45) return;
+    if (Math.abs(elev) < 0.15 || Math.abs(elev) > 1.45) {
+      // Leave a user-framed view alone, but re-apply the pixel offset against the
+      // new viewport size: setViewOffset stores fullWidth/fullHeight from the
+      // moment it was set.
+      this.applyViewOffset(this.viewOffsetY ?? 0);
+      return;
+    }
     const fov = this.camera.fov;
-    const { position, target } = this.frame({ dir: dir.toArray(), fov });
+    const { position, target, viewOffsetY } = this.frame({ dir: dir.toArray(), fov });
     this.camera.position.copy(position);
     this.controls.target.copy(target);
+    this.applyViewOffset(viewOffsetY ?? 0);
     this.controls.update();
   }
+
+  /**
+   * Orbit 180 degrees around the board, keeping distance and elevation.
+   *
+   * This is what the "Flip view" control must do. It used to call
+   * `controller.setPlayerColor`, which is the play-as-black entry point and
+   * starts a NEW GAME — so looking at the board from the other side silently
+   * threw away the game in progress.
+   */
+  flip(duration = 0.9) {
+    const to = flipAround(this.camera.position, this.controls.target);
+    this.goTo({
+      position: to.toArray(),
+      target: this.controls.target.toArray(),
+      fov: this.camera.fov,
+      // A flip is the same framing seen from behind, so it keeps the projection
+      // offset that centres the board in the band.
+      viewOffsetY: this.viewOffsetY ?? 0,
+    }, duration);
+  }
+
 
   update(dt) {
     const anim = this.anim;
@@ -420,11 +548,14 @@ export class CameraRig {
               anim.fromTarget = this.controls.target.clone();
               anim.toTarget = new THREE.Vector3(...anim.returnTo.target);
               anim.duration = 0.55;
+              anim.toOffset = anim.returnOffset ?? 0;
             }
           } else {
+            this.applyViewOffset(anim.toOffset ?? 0);
             this.anim = null;
           }
         } else {
+          this.applyViewOffset(anim.toOffset ?? 0);
           this.anim = null;
         }
       }

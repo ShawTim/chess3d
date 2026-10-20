@@ -12,7 +12,7 @@
  */
 import * as THREE from 'three';
 import {
-  Chess, WHITE, BLACK, PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING,
+  Chess, WHITE, BLACK,
   moveFrom, moveTo, moveFlags, movePromo, moveToUci,
   pieceType, pieceColor, squareName, FLAG_CASTLE, FLAG_CAPTURE,
 } from '../engine/chess.js';
@@ -25,6 +25,7 @@ export const Phase = {
   PLAYER_TURN: 'player',
   ANIMATING: 'animating',
   AI_THINKING: 'thinking',
+  PROMOTING: 'promoting',
   GAME_OVER: 'over',
 };
 
@@ -49,10 +50,18 @@ export class GameController {
     this.lastMove = null;
     this.hintMove = null;
 
+    // A promotion is a choice, not a default: the four candidate moves are held
+    // here until the player picks a piece.
+    this.promotion = null;
+
+    /** Index into moveList while reviewing history, or null when live. */
+    this.reviewPly = null;
+
     this.worker = null;
     this.workerReady = false;
     this.searchId = 0;
     this.pendingSearch = null;
+    this.pendingHint = null;
     this.thinkTimer = 0;
   }
 
@@ -68,6 +77,24 @@ export class GameController {
     this.hud.setStatus('Your move', 'Good luck');
     this.hud.setThinking(false);
     this.phase = Phase.PLAYER_TURN;
+    this.updateControls();
+  }
+
+  /**
+   * Keep the toolbar honest.
+   *
+   * Undo and Hint used to stay lit in states where they could not do anything:
+   * Hint while the AI was thinking, Undo on an untouched board. Clicking them
+   * produced silence, which reads as a broken button. They are disabled now.
+   */
+  updateControls() {
+    const canHint = this.phase === Phase.PLAYER_TURN
+      && !this.pendingHint
+      && this.reviewPly === null;
+    const canUndo = this.moveList.length > 0
+      && this.phase !== Phase.ANIMATING
+      && !this.pieceViews.busy;
+    this.hud.setControls?.({ canHint, canUndo });
   }
 
   spawnWorker() {
@@ -96,6 +123,24 @@ export class GameController {
       return;
     }
     if (msg.type !== 'result') return;
+
+    // A hint is a search result too, but it must never be played. Match it
+    // against its own id first so a hint can never be mistaken for the AI move.
+    if (this.pendingHint && msg.id === this.pendingHint.id) {
+      const hint = this.pendingHint;
+      this.pendingHint = null;
+      this.hud.setThinking(false);
+      this.hud.setEngineInfo({ depth: msg.depth, nodes: msg.nodes, ms: msg.ms, score: msg.score });
+      const move = hint.legal.find((m) => moveToUci(m) === msg.uci);
+      if (!move) return;
+      this.hintMove = move;
+      this.board.setSelection(moveFrom(move));
+      this.board.setLegalMoves([move], this.game.board);
+      this.pieceViews.setSelected(moveFrom(move));
+      this.hud.showHint(this.game.moveToSan(move), msg.score);
+      return;
+    }
+
     if (!this.pendingSearch || msg.id !== this.pendingSearch.id) return;
 
     const pending = this.pendingSearch;
@@ -104,10 +149,18 @@ export class GameController {
     this.hud.setEngineInfo({ depth: msg.depth, nodes: msg.nodes, ms: msg.ms, score: msg.score });
 
     if (!msg.uci) { this.onGameOver(); return; }
-    const move = pending.legal.find((m) => moveToUci(m) === msg.uci);
+
+    // The engine replies from a snapshot of the position it was given. If the
+    // player undid, restarted or reviewed history while it was thinking, the
+    // reply is for a board that no longer exists, and playing it would corrupt
+    // the game. Validate against the current position instead of trusting it.
+    if (this.phase !== Phase.AI_THINKING) return;
+    const move = pending.legal.find((m) => moveToUci(m) === msg.uci)
+      ?? this.game.legalMoves().find((m) => moveToUci(m) === msg.uci);
     if (!move) {
       console.warn('Engine returned an unusable move:', msg.uci);
-      this.applyMove(pending.legal[0]);
+      const fallback = this.game.legalMoves()[0];
+      if (fallback !== undefined) this.applyMove(fallback);
       return;
     }
     this.applyMove(move);
@@ -122,6 +175,9 @@ export class GameController {
    * pick is far more forgiving with a 3D pointer than drag-and-drop.
    */
   onSquareClick(square) {
+    // Touching the board while reviewing history returns to the live game; it
+    // must never play a move into a position the player is only inspecting.
+    if (this.reviewPly !== null) { this.returnToLive(); return; }
     if (this.phase !== Phase.PLAYER_TURN) return;
     if (this.pieceViews.busy) return;
 
@@ -139,9 +195,17 @@ export class GameController {
       return;
     }
 
-    const move = this.legalForSelected.find((m) => moveTo(m) === square);
-    if (move) {
-      this.playPlayerMove(move);
+    // A promotion produces FOUR legal moves that share a destination square. The
+    // old code took the first match, which was always the queen, so the
+    // underpromotions the rules describe could never actually be played. Hand a
+    // real choice to the player instead.
+    const candidates = this.legalForSelected.filter((m) => moveTo(m) === square);
+    if (candidates.length > 1 && candidates.some((m) => movePromo(m))) {
+      this.promptPromotion(candidates);
+      return;
+    }
+    if (candidates.length) {
+      this.playPlayerMove(candidates[0]);
       return;
     }
 
@@ -152,11 +216,42 @@ export class GameController {
     }
   }
 
+  /** Ask the player which piece to promote to. */
+  promptPromotion(moves) {
+    this.phase = Phase.PROMOTING;
+    this.promotion = { moves, from: this.selected };
+    this.audio.playUi();
+    this.hud.showPromotion({
+      color: this.playerColor,
+      onPick: (type) => this.resolvePromotion(type),
+      onCancel: () => this.cancelPromotion(),
+    });
+  }
+
+  resolvePromotion(type) {
+    const pending = this.promotion;
+    this.promotion = null;
+    this.hud.hidePromotion();
+    if (!pending) return;
+    const move = pending.moves.find((m) => movePromo(m) === type);
+    this.phase = Phase.PLAYER_TURN;
+    if (move) this.playPlayerMove(move);
+    else this.clearSelection();
+  }
+
+  cancelPromotion() {
+    this.promotion = null;
+    this.hud.hidePromotion();
+    if (this.phase === Phase.PROMOTING) this.phase = Phase.PLAYER_TURN;
+    this.clearSelection();
+  }
+
   select(square) {
     this.selected = square;
     this.legalForSelected = this.game.legalMoves().filter((m) => moveFrom(m) === square);
     this.board.setSelection(square);
     this.board.setLegalMoves(this.legalForSelected, this.game.board);
+    this.pieceViews.setSelected(square);
     const piece = this.game.board[square];
     this.hud.setSelectionInfo({
       square: squareName(square),
@@ -171,6 +266,7 @@ export class GameController {
     this.legalForSelected = [];
     this.board.setSelection(null);
     this.board.setLegalMoves([], this.game.board);
+    this.pieceViews.setSelected(null);
     this.hud.setSelectionInfo(null);
   }
 
@@ -238,6 +334,9 @@ export class GameController {
       from, to, color,
       captured: isCapture ? capturedPiece : null,
       check: san.includes('+') || san.includes('#'),
+      // Stored so the move list can show the position after any move without
+      // replaying the whole game.
+      fen: this.game.fen(),
     });
     this.hud.renderMoveList(this.moveList);
     this.updateCaptured();
@@ -265,6 +364,7 @@ export class GameController {
       this.hud.setStatus('Thinking', this.difficultyLabel());
       this.requestAiMove();
     }
+    this.updateControls();
   }
 
   castleRookSquares(color, kingTo) {
@@ -353,8 +453,13 @@ export class GameController {
 
   undo() {
     if (this.phase === Phase.ANIMATING || this.pieceViews.busy) return;
+    if (this.phase === Phase.PROMOTING) this.cancelPromotion();
     if (!this.moveList.length) return;
 
+    // Anything the engine is still computing refers to the position being taken
+    // back. Cancel it first, or its reply lands on the restored board later.
+    this.cancelSearches();
+    this.exitReview();
     // Undo back to the player's turn. When the last move played was the
     // opponent's, its reply is taken back along with the player's own move;
     // otherwise a single ply is enough.
@@ -384,11 +489,18 @@ export class GameController {
     this.hud.hideGameOver();
     this.hud.setEngineInfo(null);
     this.audio.playUi();
+    this.updateControls();
   }
 
   /* -------------------------------------------------------------- new game -- */
 
   newGame({ playerColor = this.playerColor, difficulty = this.difficulty } = {}) {
+    this.cancelSearches();
+    this.exitReview();
+    if (this.phase === Phase.PROMOTING) {
+      this.promotion = null;
+      this.hud.hidePromotion();
+    }
     this.playerColor = playerColor;
     this.difficulty = difficulty;
     this.game = new Chess();
@@ -412,6 +524,7 @@ export class GameController {
     this.hud.hideGameOver();
     this.hud.setDifficulty(difficulty);
     this.hud.setStatus('Your move', this.difficultyLabel());
+    this.updateControls();
 
     this.cameraRig.goTo(playerColor === WHITE ? 'white' : 'black', 1.2);
 
@@ -434,25 +547,105 @@ export class GameController {
     this.hud.setEngineInfo(null);
     if (this.phase === Phase.PLAYER_TURN) this.hud.setStatus('Your move', this.difficultyLabel());
   }
-
-  /* ------------------------------------------------------------------ hints -- */
-
+  /**
+   * Suggest a move for the player.
+   *
+   * This used to call `findBestMove` synchronously on the main thread with a
+   * 1.2-second budget, which froze the render loop for the whole search — the
+   * camera stuttered and the board stopped responding while "thinking". It now
+   * runs in the same worker as the opponent, on a stronger setting, so the hint
+   * is genuinely good and the scene keeps animating.
+   */
   async hint() {
     if (this.phase !== Phase.PLAYER_TURN || this.pieceViews.busy) return;
+    if (this.pendingHint) return;
+    const legal = this.game.legalMoves();
+    if (!legal.length) return;
+
     this.hud.setThinking(true);
-    // Hints always come from a strong setting regardless of the opponent's
-    // difficulty, so the suggestion is actually worth following.
+    this.cancelSearches({ keepThinking: true });
+    this.searchId++;
+    const id = this.searchId;
+    this.pendingHint = { id, legal };
+
+    if (this.worker && this.workerReady) {
+      this.worker.postMessage({
+        id,
+        type: 'search',
+        fen: this.game.fen(),
+        difficulty: 'advanced',
+        history: this.history,
+      });
+      return;
+    }
+
+    // Fallback: no worker (very old browser). Compute it inline, but on the next
+    // macrotask so the spinner paints first.
     const { findBestMove } = await import('../engine/ai.js');
     await new Promise((r) => setTimeout(r, 20));
     const res = findBestMove(this.game.fen(), 'advanced');
+    this.pendingHint = null;
     this.hud.setThinking(false);
-    if (!res.uci) return;
-    const move = this.game.legalMoves().find((m) => moveToUci(m) === res.uci);
+    const move = legal.find((m) => moveToUci(m) === res.uci);
     if (!move) return;
     this.hintMove = move;
     this.board.setSelection(moveFrom(move));
     this.board.setLegalMoves([move], this.game.board);
-    this.hud.showHint(res.uci, res.score);
+    this.pieceViews.setSelected(moveFrom(move));
+    this.hud.showHint(this.game.moveToSan(move), res.score);
+  }
+
+  /** Drop any search in flight; its reply would be for a stale position. */
+  cancelSearches({ keepThinking = false } = {}) {
+    this.pendingHint = null;
+    if (this.pendingSearch) {
+      this.pendingSearch = null;
+      this.searchId++;
+    }
+    if (!keepThinking) this.hud.setThinking(false);
+  }
+
+  /* ---------------------------------------------------------------- review -- */
+
+  /**
+   * Show the position after move `index` in the move list.
+   *
+   * The move list items look clickable, and previously clicking one did nothing
+   * at all — a dead affordance. Each entry now stores the FEN it produced, so a
+   * click can rebuild the pieces at that point without replaying the game.
+   */
+  preview(index) {
+    if (this.pieceViews.busy) return;
+    if (this.phase === Phase.ANIMATING) return;
+    const entry = this.moveList[index];
+    if (!entry || !entry.fen) return;
+    if (this.reviewPly === index) { this.returnToLive(); return; }
+
+    this.reviewPly = index;
+    const game = new Chess(entry.fen);
+    this.pieceViews.rebuild(game);
+    this.board.setSelection(null);
+    this.board.setLegalMoves([], game.board);
+    this.board.setLastMove(entry.from, entry.to);
+    this.board.setCheck(game.inCheck(game.turn) ? game.kingSq[game.turn] : null);
+    this.hud.setSelectionInfo(null);
+    this.hud.setReviewing(index, entry.san);
+  }
+
+  /** Leave review and restore the live position. */
+  returnToLive() {
+    if (this.reviewPly === null) return;
+    this.reviewPly = null;
+    this.hud.setReviewing(null);
+    this.pieceViews.rebuild(this.game);
+    this.clearSelection();
+    this.syncViews();
+  }
+
+  /** Internal: clear review state without rebuilding the live position. */
+  exitReview() {
+    this.reviewPly = null;
+    this.hud.setReviewing(null);
   }
 
   /* ------------------------------------------------------------------ views -- */
@@ -487,6 +680,10 @@ export class GameController {
     } else {
       this.thinkTimer = 0;
     }
+
+    // Breathe the check marker so it reads as an alarm rather than a red tile.
+    const checkSq = this.game.inCheck(this.game.turn) ? this.game.kingSq[this.game.turn] : null;
+    this.board.pulseCheck?.(dt, checkSq !== null && this.reviewPly === null);
   }
 
   dispose() {

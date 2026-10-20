@@ -15,7 +15,8 @@ import { PieceViews } from './render/pieceViews.js';
 import { Hud } from './ui/hud.js';
 import { AudioEngine } from './audio/sfx.js';
 import { GameController } from './game/controller.js';
-import { WHITE, BLACK } from './engine/chess.js';
+import { WHITE } from './engine/chess.js';
+import { DIFFICULTIES } from './engine/ai.js';
 
 const loader = document.getElementById('loader');
 const loaderNote = document.getElementById('loader-note');
@@ -77,10 +78,33 @@ async function boot() {
   const audio = new AudioEngine();
   let controller = null;
 
+  // Settings survive a reload: a player who turned off the sound or prefers the
+  // top view should not have to redo that on every visit.
+  const SETTINGS_KEY = 'chess3d.settings.v1';
+  const saved = (() => {
+    try { return JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); }
+    catch { return {}; }
+  })();
+  const persist = () => {
+    try {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+        difficulty: controller?.difficulty,
+        sound: hud.btnSound?.getValue?.(),
+        cinematic: hud.btnQuality?.getValue?.(),
+      }));
+    } catch { /* private mode: settings simply do not persist */ }
+  };
+
   const hud = new Hud({
     onNewGame: (color) => {
       audio.unlock();
       audio.playUi();
+      // Choosing the side you are already playing should not restart anything.
+      // The explicit New game button is the way to start over.
+      if (color === controller.playerColor && controller.moveList.length) {
+        hud.showToast('Already playing ' + (color === WHITE ? 'White' : 'Black'));
+        return;
+      }
       controller.setPlayerColor(color);
       hud.setSide(color);
     },
@@ -88,6 +112,7 @@ async function boot() {
       audio.unlock();
       audio.playUi();
       controller.setDifficulty(id);
+      persist();
     },
     onUndo: () => {
       audio.unlock();
@@ -106,9 +131,10 @@ async function boot() {
     onFlip: () => {
       audio.unlock();
       audio.playUi();
-      const side = controller.playerColor === WHITE ? BLACK : WHITE;
-      controller.setPlayerColor(side);
-      hud.setSide(side);
+      // Flip the CAMERA, not the game. This used to call setPlayerColor, which
+      // starts a new game and discarded the position the player was looking at.
+      cameraRig.flip();
+      hud.setView(null);
     },
     onRestart: () => {
       audio.unlock();
@@ -119,8 +145,11 @@ async function boot() {
       audio.unlock();
       audio.setEnabled(on);
       if (on) audio.playUi();
+      persist();
     },
-    onQualityToggle: (on) => rig.setCinematic(on),
+    onQualityToggle: (on) => { rig.setCinematic(on); persist(); },
+    onMoveClick: (index) => controller.preview(index),
+    onExitReview: () => controller.returnToLive(),
     // Opening the mobile sheet disables camera input: the sheet is a modal
     // surface, and an orbit drag that started on it should not spin the board
     // behind it. Closing restores control.
@@ -129,11 +158,28 @@ async function boot() {
     },
   });
 
+  // Apply persisted preferences. Difficulty is applied before the controller
+  // starts, so the first status line is already correct.
+  if (saved.sound === false) {
+    audio.setEnabled(false);
+    hud.btnSound.setState(false);
+  }
+  if (saved.cinematic === false) {
+    rig.setCinematic(false);
+    hud.btnQuality.setState(false);
+  }
+
   // ------------------------------------------------------------ controller --
   await setLoading('Waking the engine');
   controller = new GameController({ rig, cameraRig, pieceViews, board, hud, audio });
   controller.init();
   hud.setSide(WHITE);
+
+  // Restore the saved difficulty before the first status line is shown.
+  if (saved.difficulty && DIFFICULTIES[saved.difficulty]) {
+    controller.setDifficulty(saved.difficulty);
+    hud.setDifficulty(saved.difficulty);
+  }
 
   // The HUD is on screen now, so its real extents are measurable: re-solve the
   // opening view against them rather than the fallback insets.
@@ -201,16 +247,24 @@ async function boot() {
   /**
    * Resolve a pointer event to a board square.
    *
-   * Two strategies are tried: first a raycast against the tile meshes, then an
-   * intersection with the mathematical board plane. The plane fallback is what
-   * makes clicks near the base of a tall piece still land on the right square,
-   * where the tile itself is occluded by the piece standing on it.
+   * Pieces are tested first. With the old tile-first order, clicking the upper
+   * half of a tall piece put the ray through empty air above the board and the
+   * plane fallback picked the square BEHIND the piece, so kings and queens were
+   * hard to select at steep camera angles. Hitting the piece mesh itself maps
+   * back through its userData, which is always the square it stands on.
    */
   function pickSquare(e) {
     const rect = canvas.getBoundingClientRect();
     pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
     pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
     raycaster.setFromCamera(pointer, rig.camera);
+
+    const pieceHits = raycaster.intersectObjects(pieceViews.group.children, true);
+    for (const hit of pieceHits) {
+      let node = hit.object;
+      while (node && node.userData?.square === undefined) node = node.parent;
+      if (node && node.userData.square >= 0) return node.userData.square;
+    }
 
     const tileHits = raycaster.intersectObjects(board.pickTargets(), false);
     if (tileHits.length) {
@@ -226,21 +280,28 @@ async function boot() {
   // -------------------------------------------------------------- shortcuts --
   window.addEventListener('keydown', (e) => {
     if (e.target && /input|textarea/i.test(e.target.tagName)) return;
+    // A promotion dialog is modal: its own key handler owns the keyboard, so the
+    // game shortcuts must not fire underneath it.
+    if (controller.phase === 'promoting') return;
     switch (e.key.toLowerCase()) {
       case 'u': controller.undo(); break;
       case 'h': controller.hint(); break;
       case 'n': controller.newGame(); break;
-      case 'f': {
-        const side = controller.playerColor === WHITE ? BLACK : WHITE;
-        controller.setPlayerColor(side);
-        hud.setSide(side);
+      case 'f':
+        // Flip the camera only. This used to change sides, which restarted the
+        // game and lost the position the player was looking at.
+        cameraRig.flip();
+        hud.setView(null);
         break;
-      }
       case '1': cameraRig.goTo('white'); hud.setView('white'); break;
       case '2': cameraRig.goTo('black'); hud.setView('black'); break;
       case '3': cameraRig.goTo('side'); hud.setView('side'); break;
       case '4': cameraRig.goTo('top'); hud.setView('top'); break;
-      case 'escape': controller.clearSelection(); break;
+      case 'escape':
+        if (controller.reviewPly !== null) controller.returnToLive();
+        else if (hud.sheetOpen) hud.closeSheet();
+        else controller.clearSelection();
+        break;
       default: break;
     }
   });

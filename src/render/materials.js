@@ -15,8 +15,10 @@ import {
 /** Wood palette, chosen so the light squares stay legible under bloom. */
 const LIGHT_WOOD = {
   seed: 11,
-  dark: [0.52, 0.34, 0.17],
-  light: [0.87, 0.70, 0.45],
+  // Slightly deeper than the original honey tone: under the new exposure the old
+  // values read as lemon-yellow and fought the brass inlay.
+  dark: [0.48, 0.31, 0.155],
+  light: [0.80, 0.645, 0.435],
   rings: 5,
 };
 
@@ -37,9 +39,11 @@ const FRAME_WOOD = {
 
 const WHITE_PIECE = {
   seed: 3,
-  base: [0.96, 0.935, 0.885],
-  vein: [0.62, 0.60, 0.57],
-  veinStrength: 0.62,
+  // Ivory, not chalk. At 0.96 with the studio environment the highlights
+  // clipped to pure white and every piece lost its carved detail.
+  base: [0.70, 0.678, 0.632],
+  vein: [0.44, 0.42, 0.39],
+  veinStrength: 0.55,
   swirl: 3.1,
   scale: 1.4,
 };
@@ -132,7 +136,7 @@ export class MaterialLibrary {
       sheen: 0.28,
       sheenRoughness: 0.5,
       sheenColor: new THREE.Color(0x6b5a44),
-      envMapIntensity: 1.05,
+      envMapIntensity: 0.82,
     }));
 
     this.blackPiece = this.keep(new THREE.MeshPhysicalMaterial({
@@ -149,24 +153,53 @@ export class MaterialLibrary {
     }));
 
     // --- Accents -----------------------------------------------------------
-    // Warm gold for queen crowns and king finials, brushed rather than mirror.
+    // Warm gold for queen crowns and king finials. Anisotropy is what reads as
+    // "turned metal" rather than a smooth plastic swirl: the highlight stretches
+    // along the lathe direction the way it does on a real gilt finial.
     this.gold = this.keep(new THREE.MeshPhysicalMaterial({
-      color: 0xc9a227,
+      color: 0xd8ad55,
       metalness: 1.0,
-      roughness: 0.32,
-      clearcoat: 0.4,
-      clearcoatRoughness: 0.35,
-      envMapIntensity: 1.4,
+      roughness: 0.28,
+      anisotropy: 0.55,
+      anisotropyRotation: Math.PI / 2,
+      clearcoat: 0.45,
+      clearcoatRoughness: 0.30,
+      envMapIntensity: 1.55,
     }));
 
     // Darker bronze for the black side's accents, so the two sides read apart.
     this.bronze = this.keep(new THREE.MeshPhysicalMaterial({
-      color: 0x6f5a3a,
+      color: 0x8a6a3c,
       metalness: 1.0,
-      roughness: 0.45,
-      clearcoat: 0.3,
-      clearcoatRoughness: 0.4,
-      envMapIntensity: 1.2,
+      roughness: 0.38,
+      anisotropy: 0.45,
+      anisotropyRotation: Math.PI / 2,
+      clearcoat: 0.32,
+      clearcoatRoughness: 0.38,
+      envMapIntensity: 1.35,
+    }));
+
+    // Brass inlay: the thin line set into the frame around the playing field.
+    // Slightly brighter and smoother than the accent gold so it catches a
+    // continuous highlight along its whole length.
+    this.inlay = this.keep(new THREE.MeshPhysicalMaterial({
+      color: 0xe2bf74,
+      metalness: 1.0,
+      roughness: 0.20,
+      anisotropy: 0.7,
+      anisotropyRotation: 0,
+      envMapIntensity: 1.7,
+    }));
+
+    // Felt under the board, so the set sits on something instead of floating.
+    this.felt = this.keep(new THREE.MeshPhysicalMaterial({
+      color: 0x141a17,
+      roughness: 0.96,
+      metalness: 0.0,
+      sheen: 0.5,
+      sheenRoughness: 0.9,
+      sheenColor: new THREE.Color(0x2d3a33),
+      envMapIntensity: 0.25,
     }));
 
     // --- Ground ------------------------------------------------------------
@@ -181,10 +214,13 @@ export class MaterialLibrary {
     }));
 
     // --- Overlays ----------------------------------------------------------
-    // Selection and legal-move markers. Additive so they glow without darkening
-    // the board underneath, and depthWrite off so they never fight the tiles.
+    // --- Overlays ----------------------------------------------------------
+    // The highlight palette is warm and desaturated, drawn from the same brass
+    // and ivory as the rest of the UI. Neon cyan is the one colour that makes a
+    // considered 3D scene look like a prototype, so the markers now read as
+    // light falling on the wood rather than as debug gizmos.
     this.selectRing = this.keep(new THREE.MeshBasicMaterial({
-      color: 0x6fd6ff,
+      color: 0xffe0a8,
       transparent: true,
       opacity: 0.85,
       blending: THREE.AdditiveBlending,
@@ -193,51 +229,52 @@ export class MaterialLibrary {
     }));
 
     this.moveDot = this.keep(new THREE.MeshBasicMaterial({
-      color: 0x9fe8ff,
+      color: 0xffe7c0,
       transparent: true,
-      opacity: 0.55,
+      opacity: 0.38,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     }));
 
     this.captureRing = this.keep(new THREE.MeshBasicMaterial({
-      color: 0xff8a5c,
+      color: 0xffab6e,
       transparent: true,
-      opacity: 0.75,
+      opacity: 0.80,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       side: THREE.DoubleSide,
     }));
 
     this.lastMoveFrom = this.keep(new THREE.MeshBasicMaterial({
-      color: 0xffd479,
+      color: 0xf3cf92,
       transparent: true,
-      opacity: 0.16,
+      opacity: 0.13,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     }));
 
     this.lastMoveTo = this.keep(new THREE.MeshBasicMaterial({
-      color: 0xffd479,
+      color: 0xffd88f,
       transparent: true,
-      opacity: 0.30,
+      opacity: 0.26,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     }));
 
     // Very soft wash under the cursor: reads as a light shift, not a tile tint.
     this.hover = this.keep(new THREE.MeshBasicMaterial({
-      color: 0xbfd8ff,
+      color: 0xfff2da,
       transparent: true,
-      opacity: 0.075,
+      opacity: 0.06,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     }));
 
+    // Check is the one place that earns a saturated colour: it is a warning.
     this.checkPulse = this.keep(new THREE.MeshBasicMaterial({
-      color: 0xff4d4d,
+      color: 0xff5540,
       transparent: true,
-      opacity: 0.30,
+      opacity: 0.26,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     }));

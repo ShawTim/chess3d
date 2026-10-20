@@ -13,13 +13,19 @@
 import * as THREE from 'three';
 import {
   PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING, WHITE, BLACK,
-  pieceType, pieceColor, EMPTY, makePiece,
+  pieceType, pieceColor, makePiece,
 } from '../engine/chess.js';
-import { getPieceGeometry, PIECE_HEIGHT } from './pieces.js';
+import { getPieceGeometry } from './pieces.js';
 import { squareToWorld } from './board.js';
-import { createPuffTexture } from './textures.js';
+import { createPuffTexture, createContactShadowTexture } from './textures.js';
 
 const LIFT = 0.00;
+
+/** How far a selected piece rises off its square, in world units. */
+const SELECT_LIFT = 0.055;
+
+/** Footprint of the soft occlusion decal drawn under a piece. */
+const CONTACT_SIZE = 0.78;
 
 /** Easing curves used by the various animations. */
 const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
@@ -49,10 +55,32 @@ export class PieceViews {
     this.anims = [];
     /** Sub-meshes grouped by material, so a side-swap can fade them together. */
     this.meshes = [];
-
     this.puffTexture = createPuffTexture({ size: 128 });
     this.puffs = [];
     this.buildPuffPool(10);
+
+    // Soft contact shadows. These are what stop the pieces reading as stickers
+    // dropped onto the board: the shadow map casts a directional shadow, but the
+    // dense occlusion right at the base has to be drawn explicitly.
+    this.shadowGroup = new THREE.Group();
+    this.shadowGroup.name = 'contact-shadows';
+    this.shadowGroup.renderOrder = 2;
+    scene.add(this.shadowGroup);
+    this.shadowTexture = createContactShadowTexture({ size: 128 });
+    this.shadowGeometry = new THREE.PlaneGeometry(CONTACT_SIZE, CONTACT_SIZE);
+    this.shadowGeometry.rotateX(-Math.PI / 2);
+    this.shadowMaterial = new THREE.MeshBasicMaterial({
+      map: this.shadowTexture,
+      color: 0x000000,
+      transparent: true,
+      opacity: 0.5,
+      depthWrite: false,
+      toneMapped: false,
+    });
+    this.shadows = new Map();
+
+    // Which piece is currently picked up, so it can rise off the board.
+    this.selectedId = null;
 
     this._tmpVec = new THREE.Vector3();
   }
@@ -138,6 +166,14 @@ export class PieceViews {
     this.group.add(g);
     this.pieces.set(g.userData.id, g);
 
+    // The contact shadow is a separate mesh because it must stay on the board
+    // while its piece lifts, leaps or dissolves.
+    const shadow = new THREE.Mesh(this.shadowGeometry, this.shadowMaterial);
+    shadow.position.set(g.position.x, 0.004, g.position.z);
+    shadow.renderOrder = 2;
+    this.shadowGroup.add(shadow);
+    this.shadows.set(g.userData.id, shadow);
+
     if (animate) {
       g.scale.setScalar(0.01);
       this.anims.push({
@@ -167,15 +203,34 @@ export class PieceViews {
 
   clearAll() {
     this.anims.length = 0;
+    this.selectedId = null;
     for (const g of this.pieces.values()) {
       this.group.remove(g);
       // Geometries and materials are shared/cached, so only the group goes.
     }
     this.pieces.clear();
+    for (const s of this.shadows.values()) this.shadowGroup.remove(s);
+    this.shadows.clear();
     for (const p of this.puffs) {
       p.sprite.visible = false;
       p.anim = null;
     }
+  }
+
+  /**
+   * Raise the picked piece off the board.
+   *
+   * A ring on the square says "this one"; floating it a few millimetres says the
+   * same thing in the language of a physical set, and it reads instantly on a
+   * phone where the ring is only a couple of pixels thick.
+   */
+  setSelected(square) {
+    if (square === null || square === undefined) {
+      this.selectedId = null;
+      return;
+    }
+    const g = this.at(square);
+    this.selectedId = g ? g.userData.id : null;
   }
 
   /* ------------------------------------------------------------ animation -- */
@@ -377,6 +432,11 @@ export class PieceViews {
         if (t >= 1) {
           this.group.remove(a.group);
           this.pieces.delete(a.group.userData.id);
+          const shadow = this.shadows.get(a.group.userData.id);
+          if (shadow) {
+            this.shadowGroup.remove(shadow);
+            this.shadows.delete(a.group.userData.id);
+          }
           this.anims.splice(i, 1);
         }
         continue;
@@ -401,6 +461,12 @@ export class PieceViews {
           this.pieces.set(g.userData.id, g);
           this.group.remove(pawnGroup);
           this.pieces.delete(pawnGroup.userData.id);
+          // Carry the contact shadow over to the promoted piece.
+          const shadow = this.shadows.get(pawnGroup.userData.id);
+          if (shadow) {
+            this.shadows.delete(pawnGroup.userData.id);
+            this.shadows.set(g.userData.id, shadow);
+          }
           a.group = g;
           a.swapped = true;
         }
@@ -427,6 +493,31 @@ export class PieceViews {
       p.sprite.scale.setScalar(0.35 + t * 1.5);
       p.mat.opacity = 0.85 * (1 - t) ** 1.4;
     }
+
+    // Contact shadows follow their piece across the board but stay pinned to the
+    // surface, so a leaping knight keeps a shadow underneath it.
+    for (const [id, g] of this.pieces) {
+      const shadow = this.shadows.get(id);
+      if (!shadow) continue;
+      shadow.position.set(g.position.x, 0.004, g.position.z);
+      const s = Math.max(0.2, g.scale.x);
+      shadow.scale.setScalar(s);
+      shadow.visible = !g.userData.removing;
+    }
+
+    // Ease picked-up pieces off the board. Any group with an active animation is
+    // skipped: those animations own the Y position for the duration.
+    const animated = new Set();
+    for (const a of this.anims) {
+      if (a.kind === 'move' || a.kind === 'dissolve' || a.kind === 'spawn') {
+        animated.add(a.group.userData.id);
+      }
+    }
+    for (const [id, g] of this.pieces) {
+      if (animated.has(id) || g.userData.removing) continue;
+      const target = id === this.selectedId ? SELECT_LIFT : LIFT;
+      g.position.y += (target - g.position.y) * Math.min(1, dt * 16);
+    }
   }
 
   /** True while any move/dissolve/promote animation is still running. */
@@ -438,7 +529,11 @@ export class PieceViews {
     this.clearAll();
     this.puffTexture.dispose();
     for (const p of this.puffs) p.mat.dispose();
+    this.shadowTexture.dispose();
+    this.shadowGeometry.dispose();
+    this.shadowMaterial.dispose();
     this.scene.remove(this.group);
+    this.scene.remove(this.shadowGroup);
   }
 }
 

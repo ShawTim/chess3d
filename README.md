@@ -27,28 +27,43 @@ Any static host works. To deploy, publish the repository root as-is (see
 - Single-player against a built-in AI opponent, with six difficulty tiers from
   Beginner (~800) to Grandmaster (~2200+).
 - Play as White or Black; the AI opens when you take Black.
-- Full rules: castling, en passant, promotion (including underpromotion),
-  check, checkmate, stalemate, the fifty-move rule, threefold repetition and
+- Full rules: castling, en passant, promotion (including underpromotion, chosen
+  from a four-piece picker rather than assumed to be a queen), check,
+  checkmate, stalemate, the fifty-move rule, threefold repetition and
   insufficient material.
-- Undo (takes back both your move and the AI's reply), a Hint button that
-  suggests a strong move, and a move list in standard algebraic notation with
-  captured-piece trays.
+- Undo (takes back both your move and the AI's reply, and cancels a search that
+  is still running), a Hint button that asks the worker for a strong move, and a
+  move list in standard algebraic notation with captured-piece trays. Clicking a
+  move shows the board as it stood after that move, with a visible way back.
+- Promotion, hint and undo are all reachable from the keyboard, and the promotion
+  dialog is a real modal with focus handling.
 
 **Presentation**
 - Procedurally generated Staunton pieces: the pawn, rook, bishop, queen and king
   are lathed from hand-tuned profiles; the knight's head is lofted along a
   curved spine.
-- Procedural wood and marble textures with derived roughness and normal maps,
-  lit by a three-point studio rig over a generated image-based environment.
-- Physically based materials with clearcoat and sheen, soft shadows, ACES tone
-  mapping, subtle bloom on the gold accents, a vignette and SMAA.
-- Animated moves: pieces slide with a slight arc, knights leap and roll,
-  captured pieces dissolve into dust, promotions pop.
+- Procedural wood and marble textures with derived roughness and normal maps.
+  Each board square samples a different part of the tiling grain (and half are
+  rotated a quarter turn), so the 32 light squares are no longer identical.
+- A hand-built studio environment: a dark room with a warm key softbox, a cool
+  fill panel, a narrow rim strip and a low bounce, captured to a PMREM. This is
+  what gives marble a long highlight down one flank instead of chalky white.
+- A gradient backdrop sphere, atmospheric dust in the key light, soft contact
+  shadows under every piece, and a beveled frame with a brass inlay line and a
+  felt pad.
+- Physically based materials with clearcoat, sheen and anisotropic brushed metal,
+  soft shadows, ACES tone mapping, bloom on the glints, a vignette, SMAA, and a
+  final grade pass with film grain and a touch of lens aberration.
+- Animated moves: pieces slide with a slight arc, knights leap and roll, the
+  picked piece lifts off the board, captured pieces dissolve into dust,
+  promotions pop.
 - Synthesised sound effects (wooden knocks, chimes, check sting) via WebAudio.
 - A phone layout that collapses both side panels into an on-demand sheet, so the
-  board gets the screen; framing adapts to the viewport shape.
-- Camera presets that solve their own framing against the live UI layout, so the
-  whole board stays visible at any window size.
+  board gets the screen; framing adapts to the viewport shape and leans towards
+  a plan view on tall screens so the board fills the space instead of floating
+  low in it.
+- Camera presets that solve their own framing against the live UI layout, centre
+  the board in the free band, and keep the whole board visible at any size.
 
 **Offline**
 - The opponent is a real search engine computed in the browser, not a model
@@ -64,13 +79,19 @@ Any static host works. To deploy, publish the repository root as-is (see
 | Click / tap a piece, then a destination | Move |
 | Drag on the board | Orbit the camera |
 | Scroll or pinch | Zoom |
+| Click a move in the list (or focus it and press Enter) | Review the position after that move (click again, or press Esc, to return) |
 | Tap **Menu** (phone) | Open difficulty, side, move list and captured pieces |
-| `U` | Undo |
-| `H` | Hint |
+| `U` | Undo (also cancels an engine search in flight) |
+| `H` | Hint (computed in the worker, so the board keeps rendering) |
 | `N` | New game |
-| `F` | Flip sides |
+| `F` | Flip the camera 180 — this does **not** change sides or restart the game |
+| `Q` `R` `B` `N` | Choose the promotion piece while the promotion dialog is open |
 | `1` `2` `3` `4` | White / Black / Side / Top view |
-| `Esc` | Clear selection |
+| `Esc` | Close the promotion dialog, leave review, close the phone sheet, or clear the selection |
+
+Difficulty, sound and the cinematic toggle are remembered in `localStorage`, so
+a reload keeps the session's preferences. Everything else — the engine, the
+textures, the audio — is still generated in the browser with no network access.
 
 ## Architecture
 
@@ -205,7 +226,7 @@ CPU was always the only thing it needed.
 npm test
 ```
 
-Four suites run in plain Node:
+Eight suites run in plain Node:
 
 - `tests/perft.test.mjs` — perft node counts against the published values for
   six standard positions (including Kiwipete and the en-passant/promotion stress
@@ -227,6 +248,14 @@ Four suites run in plain Node:
   her own colour. This caught a real bug that had inverted every square for most of
   the project's life and survived repeated visual review, because nothing checked
   it and a rendered board looks plausible either way.
+- `tests/ux.test.mjs` — the stateful controls: a promotion offers four pieces and
+  applies the one chosen (not always a queen), flipping the camera leaves the FEN
+  and move list untouched, undo cancels a pending engine search and its late
+  reply cannot be played, and clicking a move enters and leaves review without
+  changing the live game.
+- `tests/mobile.test.mjs` — the pointer-events specificity trap: every rule that
+  re-enables input under `#ui` must outrank the blanket `#ui > *` click-through
+  rule, and a closed sheet must stay off-screen.
 - `tests/seo.test.mjs` — the social and search metadata: absolute og:image URLs,
   a canonical matching the deployed host and subpath, structured data that parses,
   and every referenced icon present on disk.
@@ -269,6 +298,26 @@ Landscape stays smaller because the space between the bars is only 276px of a
 390px screen — that is geometry, not a defect. Pinch-zoom is the answer there, and
 the camera also tilts towards top-down on short wide viewports so the squares
 project as large as the band allows.
+
+### Checking every viewport
+
+`tools/dev/ux-audit.html?w=390&h=844` loads the real app in an iframe of exactly
+that size and answers the questions a screenshot cannot:
+
+- does `.bottombar` overflow horizontally (`scrollWidth <= clientWidth + 1`)?
+- can every named control be reached without scrolling (Sound, Cinematic and the
+  four view presets, opening the phone sheet first)?
+- do toast, thinking, selection and review overlays intersect?
+- is the board centred in the free band, and does it fill at least one axis?
+
+Run it at 390x844, 612x893, 768x1024 and 1280x800. The measured values used to
+verify this build were: 1.07%, 1.01%, 0.88% and 0.44% vertical centre error, with
+100.8%, 95.7%, 95.8% and 80.3% fill on the binding axis, no horizontal bar
+overflow and no overlay intersections at any size.
+
+```bash
+npm run serve   # then open /tools/dev/ux-audit.html?w=390&h=844
+```
 
 ## Deployment
 

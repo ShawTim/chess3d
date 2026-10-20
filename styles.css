@@ -836,3 +836,308 @@ canvas#scene:active { cursor: grabbing; }
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* ==========================================================================
+   Refinement pass
+   --------------------------------------------------------------------------
+   Two things were wrong with the original chrome. Typographically, every
+   heading used the same geometric sans as the body, so the interface read as a
+   control panel bolted onto the scene. And functionally, several floating
+   messages shared the same bottom offset, so "Thinking" and the selection
+   readout landed on top of each other.
+
+   The rules below give the headings a display serif (the same voice as the
+   engraved coordinates on the board), separate the overlays into a stack, and
+   add the promotion dialog and review banner.
+   ========================================================================== */
+
+:root {
+  --display: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua",
+    Georgia, serif;
+  --focus-ring: 0 0 0 2px #08090c, 0 0 0 4px rgba(217, 176, 106, 0.92);
+}
+
+/* Keyboard focus was completely invisible, which makes the toolbar unusable
+   without a mouse. Use a double ring so it survives on both dark panels and
+   the gold-filled primary button. */
+.btn:focus-visible,
+.icon-btn:focus-visible,
+.seg-btn:focus-visible,
+.diff-btn:focus-visible,
+.move-san:focus-visible,
+.promo-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  color: var(--text);
+}
+
+.brand-text,
+.status-main,
+.modal-title,
+.promo-title,
+.loader-title,
+.panel-title {
+  font-family: var(--display);
+}
+
+.brand-text { letter-spacing: 0.30em; font-size: 14px; }
+.brand-text b { letter-spacing: 0.30em; }
+
+.status-main { font-size: 16px; font-weight: 600; letter-spacing: 0.012em; }
+.status-sub { letter-spacing: 0.05em; }
+
+.panel-title {
+  font-size: 10.5px;
+  letter-spacing: 0.20em;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+/* A hairline of brass along the top edge gives each panel a finished edge
+   instead of a flat translucent rectangle. */
+.panel { position: relative; }
+.panel::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 16px;
+  right: 16px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(217, 176, 106, 0.34), transparent);
+  pointer-events: none;
+}
+
+.loader-title {
+  font-size: 19px;
+  letter-spacing: 0.52em;
+  padding-left: 0.52em;
+  color: var(--text);
+}
+
+.modal-title { font-size: 29px; font-weight: 600; }
+.promo-title {
+  margin: 0 0 4px;
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-align: center;
+}
+
+/* Disabled controls should look unavailable, not merely dimmed on hover. */
+.btn:disabled,
+.btn:disabled:hover {
+  opacity: 0.28;
+  cursor: not-allowed;
+  background: rgba(255, 255, 255, 0.02);
+  border-color: var(--border);
+  color: var(--text-dim);
+  transform: none;
+}
+
+/* ---------------------------------------------------------- overlay stack -- */
+/* Separate the floating messages instead of stacking them at the same offset. */
+.thinking { bottom: 132px; }
+.selection-info { bottom: 92px; }
+.toast { bottom: 178px; }
+
+/* --------------------------------------------------------- review banner -- */
+
+.review-banner {
+  position: fixed;
+  left: 50%;
+  top: 86px;
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 9px 7px 18px;
+  background: var(--panel-solid);
+  border: 1px solid rgba(217, 176, 106, 0.34);
+  border-radius: 999px;
+  backdrop-filter: blur(14px);
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  transform: translate(-50%, -8px);
+  transition: opacity 0.24s, transform 0.24s;
+  pointer-events: none;
+}
+.review-banner.show { opacity: 1; transform: translate(-50%, 0); }
+.review-text {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: 0.03em;
+  color: #e6d3ad;
+  white-space: nowrap;
+}
+.review-exit { padding: 5px 13px; font-size: 11px; }
+
+/* The move being previewed stays lit in the list. */
+.move-san.current {
+  background: var(--accent-soft);
+  color: #f0dcb4;
+  box-shadow: inset 0 0 0 1px rgba(217, 176, 106, 0.42);
+}
+
+/* ------------------------------------------------------------- promotion -- */
+
+.promo-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(4, 5, 8, 0.66);
+  backdrop-filter: blur(9px);
+  opacity: 0;
+  transition: opacity 0.22s;
+}
+.promo-backdrop.show { opacity: 1; }
+/* The blanket `#ui > *` rule is (1,0,0), so this must carry the ID prefix. */
+#ui .promo-backdrop.show { pointer-events: auto; }
+
+.promo-card {
+  padding: 24px 26px 22px;
+  background: linear-gradient(180deg, rgba(28, 30, 38, 0.98), rgba(15, 16, 21, 0.99));
+  border: 1px solid var(--border-strong);
+  border-radius: 18px;
+  box-shadow: 0 34px 84px rgba(0, 0, 0, 0.7);
+  transform: translateY(10px) scale(0.98);
+  transition: transform 0.26s cubic-bezier(0.2, 0.9, 0.3, 1.08);
+}
+.promo-backdrop.show .promo-card { transform: translateY(0) scale(1); }
+
+.promo-row { display: flex; gap: 10px; margin-top: 14px; }
+
+.promo-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  min-width: 78px;
+  padding: 13px 12px 10px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text);
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.16s, border-color 0.16s, transform 0.1s;
+}
+.promo-btn:hover {
+  background: var(--accent-soft);
+  border-color: rgba(217, 176, 106, 0.55);
+}
+.promo-btn:active { transform: scale(0.97); }
+.promo-glyph {
+  font-size: 34px;
+  line-height: 1;
+  color: #f4ecdd;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
+}
+.promo-btn.black .promo-glyph { color: #b9b5ad; }
+.promo-label { font-size: 11px; letter-spacing: 0.05em; color: var(--text-dim); }
+.promo-key {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text-faint);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+
+/* ------------------------------------------------------- mobile overlays -- */
+
+@media (max-width: 900px) {
+  .thinking { bottom: calc(112px + env(safe-area-inset-bottom)); }
+  .selection-info { bottom: calc(70px + env(safe-area-inset-bottom)); }
+  .toast { bottom: calc(154px + env(safe-area-inset-bottom)); }
+  .review-banner {
+    top: auto;
+    bottom: calc(118px + env(safe-area-inset-bottom));
+    max-width: 94vw;
+  }
+  .review-text { font-size: 10.5px; }
+  .promo-card { padding: 20px 18px 18px; }
+  .promo-row { gap: 7px; }
+  .promo-btn { min-width: 66px; padding: 11px 8px 8px; }
+  .promo-glyph { font-size: 28px; }
+
+  /* A grab handle makes the sheet read as a sheet rather than a panel that
+     happens to have slid up. */
+  .sheet::before {
+    content: "";
+    display: block;
+    width: 42px;
+    height: 4px;
+    margin: 0 auto 12px;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.17);
+  }
+}
+
+@media (max-height: 480px) and (orientation: landscape) {
+  .thinking { bottom: 92px; }
+  .selection-info { bottom: 52px; }
+  .toast { bottom: 132px; }
+  .review-banner { bottom: 92px; }
+}
+
+/* --------------------------------------------------- settings panel blocks -- */
+/* View presets and options now live in the left panel. The in-panel variant
+   wraps instead of forming a fixed row, and is sized for a 232px column. */
+.view-presets.in-panel {
+  margin: 0;
+  padding: 0;
+  border-left: none;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+}
+.view-presets.in-panel .icon-btn {
+  min-width: 0;
+  padding: 7px 4px;
+  font-size: 9.5px;
+  letter-spacing: 0.02em;
+}
+.view-presets.in-panel .view-label { display: none; }
+
+.options-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.options-row .btn {
+  padding: 8px 6px;
+  font-size: 11.5px;
+  text-align: center;
+  justify-content: center;
+}
+
+/* The left column is now taller; let it scroll on short desktop windows rather
+   than silently clipping the options. */
+.panel-left { overflow-y: auto; scrollbar-width: thin; }
+.panel-left::-webkit-scrollbar { width: 6px; }
+.panel-left::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
+
+/* The bottom bar now carries actions only, so it can stay compact and centred. */
+.bottombar { max-width: calc(100vw - 28px); }
+
+@media (max-width: 900px) {
+  .bottombar { overflow-x: visible; flex-wrap: wrap; justify-content: center; }
+  .view-presets.in-panel { grid-template-columns: repeat(4, 1fr); }
+  .panel-left { overflow-y: visible; }
+}
+
+
+/* On a phone the review banner sat in the bottom stack and collided with the
+   toast and the thinking pill. It belongs under the top bar instead: reviewing
+   is a mode, and the top of the screen is the free space. */
+@media (max-width: 900px) {
+  .review-banner {
+    top: calc(58px + env(safe-area-inset-top));
+    bottom: auto;
+    transform: translate(-50%, -8px);
+  }
+  .review-banner.show { transform: translate(-50%, 0); }
+}

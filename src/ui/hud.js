@@ -11,6 +11,7 @@
  */
 import { PIECE_GLYPHS } from './glyphs.js';
 import { DIFFICULTIES } from '../engine/ai.js';
+import { QUEEN, ROOK, BISHOP, KNIGHT } from '../engine/chess.js';
 
 const el = (tag, className, text) => {
   const node = document.createElement(tag);
@@ -49,6 +50,9 @@ export class Hud {
     this.topbar.appendChild(this.brand);
 
     this.statusWrap = el('div', 'status');
+    // Screen readers announce "Your move", "Check", "White wins" as they change.
+    this.statusWrap.setAttribute('role', 'status');
+    this.statusWrap.setAttribute('aria-live', 'polite');
     this.statusMain = el('div', 'status-main', 'Loading');
     this.statusSub = el('div', 'status-sub', '');
     this.statusWrap.append(this.statusMain, this.statusSub);
@@ -78,8 +82,33 @@ export class Hud {
     this.sideBlack = el('button', 'seg-btn', 'Black');
     this.sideWhite.addEventListener('click', () => this.cb.onNewGame?.(0));
     this.sideBlack.addEventListener('click', () => this.cb.onNewGame?.(1));
+
     sideRow.append(this.sideWhite, this.sideBlack);
     this.left.appendChild(sideRow);
+
+    this.left.appendChild(this.sectionTitle('View'));
+    const views = el('div', 'view-presets in-panel');
+    for (const [id, label, title] of [
+      ['white', 'White', 'White perspective'],
+      ['black', 'Black', 'Black perspective'],
+      ['side', 'Side', 'Side view'],
+      ['top', 'Top', 'Top-down view'],
+    ]) {
+      const b = el('button', 'icon-btn', label);
+      b.title = title;
+      b.setAttribute('aria-label', title);
+      b.addEventListener('click', () => this.cb.onView?.(id));
+      views.appendChild(b);
+    }
+    this.presetButtons = [...views.querySelectorAll('.icon-btn')];
+    this.left.appendChild(views);
+
+    this.left.appendChild(this.sectionTitle('Options'));
+    const options = el('div', 'options-row');
+    this.btnSound = this.toggleButton('Sound', true, (on) => this.cb.onSoundToggle?.(on));
+    this.btnQuality = this.toggleButton('Cinematic', true, (on) => this.cb.onQualityToggle?.(on));
+    options.append(this.btnSound, this.btnQuality);
+    this.left.appendChild(options);
 
     // The side panels are wrapped so a phone can present them as one slide-up
     // sheet the player opens on demand. On desktop the wrapper is
@@ -133,36 +162,16 @@ export class Hud {
 
     this.btnUndo = this.actionButton('Undo', () => this.cb.onUndo?.());
     this.btnHint = this.actionButton('Hint', () => this.cb.onHint?.());
-    this.btnFlip = this.actionButton('Flip view', () => this.cb.onFlip?.(true));
+    // "Flip" rotates the CAMERA; it never changes sides or restarts the game.
+    this.btnFlip = this.actionButton('Flip', () => this.cb.onFlip?.(true));
+    this.btnFlip.title = 'Flip the camera 180 degrees';
+    this.btnFlip.setAttribute('aria-label', 'Flip the camera 180 degrees');
     this.btnNew = this.actionButton('New game', () => this.cb.onRestart?.(), 'primary');
 
+    // Only actions live in this bar. View presets and the two toggles moved into
+    // the settings panel: on a 612px-wide window the old bar overflowed, and
+    // Sound and Cinematic sat off-screen with no hint that they existed.
     this.bottom.append(this.btnSheet, this.btnUndo, this.btnHint, this.btnFlip, this.btnNew);
-
-    // Camera view presets. These are labelled with a camera glyph rather than
-    // plain "White"/"Black", which would read as a side selector and collide
-    // with the "Play as" control in the left panel.
-    const views = el('div', 'view-presets');
-    views.appendChild(el('span', 'view-label', 'View'));
-    for (const [id, label, title] of [
-      ['white', 'White', 'White perspective'],
-      ['black', 'Black', 'Black perspective'],
-      ['side', 'Side', 'Side view'],
-      ['top', 'Top', 'Top-down view'],
-    ]) {
-      const b = el('button', 'icon-btn', label);
-      b.title = title;
-      b.setAttribute('aria-label', title);
-      b.addEventListener('click', () => this.cb.onView?.(id));
-      views.appendChild(b);
-    }
-    this.presetButtons = [...views.querySelectorAll('.icon-btn')];
-    this.bottom.appendChild(views);
-
-    // Toggles.
-    this.btnSound = this.toggleButton('Sound', true, (on) => this.cb.onSoundToggle?.(on));
-    this.btnQuality = this.toggleButton('Cinematic', true, (on) => this.cb.onQualityToggle?.(on));
-    this.bottom.appendChild(this.btnSound);
-    this.bottom.appendChild(this.btnQuality);
 
     this.root.appendChild(this.bottom);
 
@@ -181,6 +190,30 @@ export class Hud {
     this.selectionInfo = el('div', 'selection-info');
     this.selectionInfo.style.display = 'none';
     this.root.appendChild(this.selectionInfo);
+    // Reviewing history is a mode, not a toast: it needs a visible exit.
+    this.reviewBanner = el('div', 'review-banner');
+    this.reviewBanner.style.display = 'none';
+    this.reviewText = el('span', 'review-text', '');
+    this.reviewExit = el('button', 'btn review-exit', 'Back to game');
+    this.reviewExit.addEventListener('click', () => this.cb.onExitReview?.());
+    this.reviewBanner.append(this.reviewText, this.reviewExit);
+    this.root.appendChild(this.reviewBanner);
+
+    // ------------------------------------------------------------ promotion --
+    // A promotion is a rules decision, not a default. The four legal pieces are
+    // offered explicitly, and Q/R/B/N + Escape work without a pointer.
+    this.promotion = el('div', 'promo-backdrop');
+    this.promotion.style.display = 'none';
+    this.promoCard = el('div', 'promo-card');
+    this.promoCard.setAttribute('role', 'dialog');
+    this.promoCard.setAttribute('aria-modal', 'true');
+    this.promoCard.setAttribute('aria-label', 'Choose a promotion piece');
+    this.promoTitle = el('h2', 'promo-title', 'Promote to');
+    this.promoRow = el('div', 'promo-row');
+    this.promoCard.append(this.promoTitle, this.promoRow);
+    this.promotion.appendChild(this.promoCard);
+    this.root.appendChild(this.promotion);
+
 
     this.modal = el('div', 'modal-backdrop');
     this.modal.style.display = 'none';
@@ -258,12 +291,20 @@ export class Hud {
   toggleButton(label, initial, onChange) {
     const b = el('button', 'btn toggle' + (initial ? ' on' : ''), label);
     let state = initial;
+    b.setAttribute('aria-pressed', String(initial));
     b.addEventListener('click', () => {
       state = !state;
       b.classList.toggle('on', state);
+      b.setAttribute('aria-pressed', String(state));
       onChange(state);
     });
     b.getValue = () => state;
+    // Used when a persisted preference overrides the markup default.
+    b.setState = (next) => {
+      state = !!next;
+      b.classList.toggle('on', state);
+      b.setAttribute('aria-pressed', String(state));
+    };
     return b;
   }
 
@@ -371,16 +412,29 @@ export class Hud {
       const num = el('span', 'move-num', String(i / 2 + 1) + '.');
       row.appendChild(num);
 
+      // A move entry is interactive (it opens that position), so it must also be
+      // reachable and activatable from the keyboard, not just by pointer.
+      const moveCell = (entry, ply) => {
+        const node = el('span', 'move-san' + (entry.check ? ' check' : ''), entry.san);
+        node.tabIndex = 0;
+        node.setAttribute('role', 'button');
+        node.setAttribute('aria-label', `Review the position after ${entry.san}`);
+        const activate = () => this.cb.onMoveClick?.(ply);
+        node.addEventListener('click', activate);
+        node.addEventListener('keydown', (ev) => {
+          if (ev.key === 'Enter' || ev.key === ' ') {
+            ev.preventDefault();
+            activate();
+          }
+        });
+        return node;
+      };
+
       const white = moveList[i];
-      const wb = el('span', 'move-san' + (white.check ? ' check' : ''), white.san);
-      wb.addEventListener('click', () => this.cb.onMoveClick?.(i));
-      row.appendChild(wb);
+      row.appendChild(moveCell(white, i));
 
       if (moveList[i + 1]) {
-        const black = moveList[i + 1];
-        const bb = el('span', 'move-san' + (black.check ? ' check' : ''), black.san);
-        bb.addEventListener('click', () => this.cb.onMoveClick?.(i + 1));
-        row.appendChild(bb);
+        row.appendChild(moveCell(moveList[i + 1], i + 1));
       } else {
         row.appendChild(el('span', 'move-san empty', '\u00b7\u00b7\u00b7'));
       }
@@ -449,11 +503,109 @@ export class Hud {
     this.setPlayingColor(color);
   }
 
-  /** Highlight the active camera preset button. */
+  /** Highlight the active camera preset, or clear all when `id` is null. */
   setView(id) {
     if (!this.presetButtons) return;
     const order = ['white', 'black', 'side', 'top'];
-    this.presetButtons.forEach((b, i) => b.classList.toggle('on', order[i] === id));
+    this.presetButtons.forEach((b, i) => {
+      const on = order[i] === id;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-pressed', String(on));
+    });
+  }
+
+  /** Enable/disable toolbar actions to match what is currently possible. */
+  setControls({ canUndo = true, canHint = true } = {}) {
+    if (this.btnUndo) this.btnUndo.disabled = !canUndo;
+    if (this.btnHint) this.btnHint.disabled = !canHint;
+  }
+
+  /** Show or clear the history-review banner. */
+  setReviewing(index, san) {
+    if (index === null || index === undefined) {
+      this.reviewBanner.style.display = 'none';
+      this.reviewBanner.classList.remove('show');
+      this.moveTable.querySelectorAll('.move-san.current').forEach((n) => n.classList.remove('current'));
+      return;
+    }
+    const moveNo = Math.floor(index / 2) + 1;
+    const side = index % 2 === 0 ? '' : '...';
+    this.reviewText.textContent = `Reviewing ${moveNo}${side} ${san}`;
+    this.reviewBanner.style.display = 'flex';
+    requestAnimationFrame(() => this.reviewBanner.classList.add('show'));
+    const nodes = this.moveTable.querySelectorAll('.move-san');
+    nodes.forEach((n) => n.classList.remove('current'));
+    nodes[index]?.classList.add('current');
+  }
+
+  /**
+   * Present the four promotion choices.
+   *
+   * `onPick` receives a piece type (QUEEN/ROOK/BISHOP/KNIGHT); `onCancel` fires
+   * on Escape, on a click outside the card, or on the close button. The dialog
+   * takes focus so keyboard players are not left with focus behind it.
+   */
+  showPromotion({ color = 0, onPick, onCancel } = {}) {
+    const choices = [
+      [QUEEN, 'Queen', 'q'],
+      [ROOK, 'Rook', 'r'],
+      [BISHOP, 'Bishop', 'b'],
+      [KNIGHT, 'Knight', 'n'],
+    ];
+    this.promoRow.innerHTML = '';
+    const buttons = [];
+    for (const [type, name, key] of choices) {
+      const b = el('button', 'promo-btn' + (color === 1 ? ' black' : ''));
+      b.setAttribute('aria-label', 'Promote to ' + name);
+      b.dataset.key = key;
+      const glyph = el('span', 'promo-glyph', PIECE_GLYPHS[type]);
+      const label = el('span', 'promo-label', name);
+      const kbd = el('span', 'promo-key', key.toUpperCase());
+      b.append(glyph, label, kbd);
+      b.addEventListener('click', () => onPick?.(type));
+      this.promoRow.appendChild(b);
+      buttons.push(b);
+    }
+
+    this.promotion.style.display = 'flex';
+    requestAnimationFrame(() => this.promotion.classList.add('show'));
+    buttons[0]?.focus();
+
+    const onKey = (e) => {
+      const k = e.key.toLowerCase();
+      if (k === 'escape') {
+        e.preventDefault();
+        cleanup();
+        onCancel?.();
+        return;
+      }
+      const hit = buttons.find((b) => b.dataset.key === k);
+      if (hit) {
+        e.preventDefault();
+        cleanup();
+        onPick?.(Number(choices.find((c) => c[2] === k)[0]));
+      }
+    };
+    const onBackdrop = (e) => {
+      if (e.target !== this.promotion) return;
+      cleanup();
+      onCancel?.();
+    };
+    const cleanup = () => {
+      window.removeEventListener('keydown', onKey);
+      this.promotion.removeEventListener('click', onBackdrop);
+      this._promoCleanup = null;
+    };
+    window.addEventListener('keydown', onKey);
+    this.promotion.addEventListener('click', onBackdrop);
+    this._promoCleanup = cleanup;
+  }
+
+  hidePromotion() {
+    this.promotion.classList.remove('show');
+    this.promotion.style.display = 'none';
+    this._promoCleanup?.();
+    this._promoCleanup = null;
   }
 }
 

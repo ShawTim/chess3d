@@ -8,7 +8,6 @@
  * the raycaster and the piece layout alike.
  */
 import * as THREE from 'three';
-import { SQUARE_NAMES, pieceType, WHITE, BLACK } from '../engine/chess.js';
 import { createLabelTexture } from './textures.js';
 
 export const TILE = 1;
@@ -16,6 +15,8 @@ export const BOARD_HALF = 4;
 export const BOARD_THICKNESS = 0.34;
 /** Width of the decorative frame around the playing area. */
 export const FRAME_WIDTH = 0.62;
+/** Top surface of the frame, a hair above the tiles so it catches the key light. */
+export const FRAME_TOP = 0.035;
 
 /**
  * Centre of a board square in world space.
@@ -70,6 +71,114 @@ function tileGeometry() {
 }
 
 /**
+ * Per-tile UV variation.
+ *
+ * Every square used the same map with the same 0..1 UVs, so all 32 light
+ * squares showed a pixel-identical wood grain and the board read as a printed
+ * pattern rather than a veneered one. Shifting each tile's UVs into a different
+ * part of the tiling texture — and rotating half of them a quarter turn — gives
+ * each square its own grain without a single extra texture.
+ */
+function tileGeometryVariant(sq) {
+  const geo = tileGeometry();
+  const uv = geo.attributes.uv;
+  // Two irrational-ish strides keep neighbouring squares from landing on the
+  // same offset.
+  const du = ((sq * 0.371) % 1) * 0.83;
+  const dv = ((sq * 0.613) % 1) * 0.71;
+  const rotate = ((sq * 0.29) % 1) > 0.55;
+  for (let i = 0; i < uv.count; i++) {
+    let u = uv.getX(i) + du;
+    let v = uv.getY(i) + dv;
+    if (rotate) {
+      const t = u;
+      u = 1 - v;
+      v = t;
+    }
+    uv.setXY(i, u, v);
+  }
+  uv.needsUpdate = true;
+  return geo;
+}
+
+/**
+ * Rounded-rectangle ring used for the frame profile.
+ *
+ * The old frame was a plain box: four razor-sharp edges, no highlight, no
+ * weight. A real board has a moulded edge, and that bevel is what the key light
+ * draws a bright line along. The profile is extruded with a real bevel rather
+ * than faked with a second box, so it reads correctly from every orbit angle.
+ */
+function frameGeometry() {
+  const outer = BOARD_HALF + FRAME_WIDTH;
+  const inner = BOARD_HALF - 0.005;
+  const radius = 0.16;
+
+  const rounded = (shape, half, r) => {
+    shape.moveTo(-half + r, -half);
+    shape.lineTo(half - r, -half);
+    shape.quadraticCurveTo(half, -half, half, -half + r);
+    shape.lineTo(half, half - r);
+    shape.quadraticCurveTo(half, half, half - r, half);
+    shape.lineTo(-half + r, half);
+    shape.quadraticCurveTo(-half, half, -half, half - r);
+    shape.lineTo(-half, -half + r);
+    shape.quadraticCurveTo(-half, -half, -half + r, -half);
+    return shape;
+  };
+
+  const shape = rounded(new THREE.Shape(), outer, radius);
+  // The hole is traversed in the opposite direction, which is what tells the
+  // triangulator it is a hole rather than an overlapping second outline.
+  shape.holes.push(rounded(new THREE.Path(), inner, 0.03));
+
+  const geo = new THREE.ExtrudeGeometry(shape, {
+    depth: BOARD_THICKNESS,
+    bevelEnabled: true,
+    bevelThickness: 0.030,
+    bevelSize: 0.030,
+    bevelSegments: 3,
+    curveSegments: 12,
+  });
+  // Extrusion runs along +Z; lay it flat so the depth becomes vertical.
+  // Extrusion runs along +Z, which after this rotation points up. The bevel
+  // extends `bevelThickness` past each end, so the geometry is shifted down by
+  // the full bevelled height to put its top surface exactly on FRAME_TOP.
+  geo.rotateX(-Math.PI / 2);
+  geo.translate(0, FRAME_TOP - (BOARD_THICKNESS + 0.030), 0);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/** Outer half-extent of the finished frame, including its moulding. */
+export const FRAME_EXTENT = BOARD_HALF + FRAME_WIDTH;
+
+/** Four thin brass bars forming the inlay line around the playing field. */
+function inlayMeshes(lib) {
+  const group = new THREE.Group();
+  group.name = 'inlay';
+  const len = BOARD_HALF * 2 + 0.09;
+  const w = 0.030;
+  const y = FRAME_TOP + 0.002;
+  const bars = [
+    { x: 0, z: -BOARD_HALF - 0.015, rot: 0, sx: len, sz: w },
+    { x: 0, z: BOARD_HALF + 0.015, rot: 0, sx: len, sz: w },
+    { x: -BOARD_HALF - 0.015, z: 0, rot: Math.PI / 2, sx: len, sz: w },
+    { x: BOARD_HALF + 0.015, z: 0, rot: Math.PI / 2, sx: len, sz: w },
+  ];
+  for (const b of bars) {
+    const geo = new THREE.BoxGeometry(b.sx, 0.010, b.sz);
+    const mesh = new THREE.Mesh(geo, lib.inlay);
+    mesh.position.set(b.x, y, b.z);
+    mesh.rotation.y = b.rot;
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
+    group.add(mesh);
+  }
+  return group;
+}
+
+/**
  * Build the board group.
  *
  * @param {import('./materials.js').MaterialLibrary} lib
@@ -79,13 +188,36 @@ export function createBoard(lib, handlers = {}) {
   const group = new THREE.Group();
   group.name = 'board';
 
+  // -------------------------------------------------------------- felt base --
+  // A pad under the frame, so the set sits on a surface rather than floating in
+  // space. It is only a few centimetres thick but it is what the eye reads as
+  // "object on a table".
+  const feltGeo = new THREE.BoxGeometry(9.62, 0.075, 9.62);
+  const felt = new THREE.Mesh(feltGeo, lib.felt);
+  // The pad's top sits flush under the frame's lowest edge (FRAME_TOP minus the
+  // full thickness), so the set rests on it instead of hovering above it.
+  felt.position.y = FRAME_TOP - BOARD_THICKNESS - 0.030;
+  felt.receiveShadow = true;
+  felt.castShadow = true;
+  group.add(felt);
+
+  // ---------------------------------------------------------------- frame --
+  const frameGeo = frameGeometry();
+  const frame = new THREE.Mesh(frameGeo, lib.frame);
+  frame.receiveShadow = true;
+  frame.castShadow = true;
+  group.add(frame);
+  group.add(inlayMeshes(lib));
+
   // ---------------------------------------------------------------- tiles --
   const tiles = new THREE.Group();
   tiles.name = 'tiles';
-  const geo = tileGeometry();
+  const tileGeos = [];
   for (let sq = 0; sq < 64; sq++) {
     const dark = isDarkSquare(sq);
     const mat = dark ? lib.darkSquare : lib.lightSquare;
+    const geo = tileGeometryVariant(sq);
+    tileGeos.push(geo);
     const tile = new THREE.Mesh(geo, mat);
     squareToWorld(sq, 0, tile.position);
     tile.userData.square = sq;
@@ -98,41 +230,22 @@ export function createBoard(lib, handlers = {}) {
   }
   group.add(tiles);
 
-  // ---------------------------------------------------------------- frame --
-  const outer = BOARD_HALF + FRAME_WIDTH;
-  const frameGeo = new THREE.BoxGeometry(outer * 2, BOARD_THICKNESS, outer * 2);
-  const frame = new THREE.Mesh(frameGeo, lib.frame);
-  frame.position.y = -BOARD_THICKNESS * 0.5 - 0.004;
-  frame.receiveShadow = true;
-  frame.castShadow = true;
-  frame.renderOrder = 0;
-  group.add(frame);
-
-  // A recessed lip around the playing area reads as an inlaid border.
-  const lipGeo = new THREE.BoxGeometry(BOARD_HALF * 2 + 0.10, 0.06, BOARD_HALF * 2 + 0.10);
-  const lip = new THREE.Mesh(lipGeo, lib.frame);
-  lip.position.y = -0.035;
-  lip.receiveShadow = true;
-  group.add(lip);
-
   // -------------------------------------------------------------- labels --
   const labels = new THREE.Group();
   labels.name = 'labels';
-  const labelY = 0.012;
+  const labelY = FRAME_TOP + 0.004;
   const offset = BOARD_HALF + FRAME_WIDTH * 0.52;
   for (let i = 0; i < 8; i++) {
     const file = String.fromCharCode(97 + i);
     const rank = String(8 - i);
 
-    // Larger and brighter than before: at the default camera distance the old
-    // 0.30 planes at 0.85 opacity were too faint to read, which visual review
-    // flagged. The glyphs are also given more contrast in the texture itself.
-    const fileTex = createLabelTexture(file, { size: 128, opacity: 0.95 });
-    const rankTex = createLabelTexture(rank, { size: 128, opacity: 0.95 });
-    const planeGeo = new THREE.PlaneGeometry(0.36, 0.36);
+    const fileTex = createLabelTexture(file);
+    const rankTex = createLabelTexture(rank);
+    const planeGeo = new THREE.PlaneGeometry(0.34, 0.34);
 
     const topLabel = new THREE.Mesh(planeGeo, new THREE.MeshBasicMaterial({
       map: fileTex, transparent: true, depthWrite: false, opacity: 1.0,
+      toneMapped: false,
     }));
     topLabel.rotation.x = -Math.PI / 2;
     topLabel.position.set((i - 3.5) * TILE, labelY, -offset);
@@ -145,6 +258,7 @@ export function createBoard(lib, handlers = {}) {
 
     const leftLabel = new THREE.Mesh(planeGeo, new THREE.MeshBasicMaterial({
       map: rankTex, transparent: true, depthWrite: false, opacity: 1.0,
+      toneMapped: false,
     }));
     leftLabel.rotation.x = -Math.PI / 2;
     leftLabel.position.set(-offset, labelY, (i - 3.5) * TILE);
@@ -218,10 +332,21 @@ export function createBoard(lib, handlers = {}) {
     group.add(m);
   }
 
+  /** Clockwise animation phase for the check marker, so it breathes. */
+  let checkPhase = 0;
+
   const api = {
     group,
     tiles,
     mesh: frame,
+
+    /** Pulse the check marker; called once per frame by the controller. */
+    pulseCheck(dt, active) {
+      if (!active) return;
+      checkPhase += dt;
+      const p = 0.5 + 0.5 * Math.sin(checkPhase * 4.2);
+      lib.checkPulse.opacity = 0.16 + p * 0.22;
+    },
 
     /** Highlight the from/to squares of the most recent move. */
     setLastMove(fromSq, toSq) {
@@ -307,9 +432,9 @@ export function createBoard(lib, handlers = {}) {
     pickTargets: () => tiles.children,
 
     dispose() {
-      geo.dispose();
       frameGeo.dispose();
-      lipGeo.dispose();
+      feltGeo.dispose();
+      for (const g of tileGeos) g.dispose();
       overlayGeo.dispose();
       hoverGeo.dispose();
       ringGeo.dispose();
