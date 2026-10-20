@@ -146,15 +146,27 @@ function lathe(profile, segments = RADIAL_SEGMENTS, { hand = 0.006 } = {}) {
 /** Radius/height pairs describing the turned pedestal foot every piece shares. */
 function pedestal(scale) {
   return [
-    // A turned foot, not a cone: flat underside, rounded fillet, plinth band,
-    // cove, then a separate bead ring. The bead is the part that catches the
-    // key light and tells the eye the base was cut on a lathe.
-    [0.000, 0.000], [0.198, 0.000],
-    [0.216, 0.005], [0.230, 0.013],
-    [0.286, 0.021], [0.290, 0.038],
-    [0.274, 0.049], [0.246, 0.059], [0.241, 0.069],
-    [0.262, 0.077], [0.264, 0.088],
-    [0.245, 0.096], [0.224, 0.104],
+    // A turned foot, not a cone. In order: flat underside, fillet, the plinth
+    // band, the parting groove the blank was cut off with, a cove, then two
+    // beads of slightly different size. Two beads rather than one is what reads
+    // as lathe work at playing distance: each catches its own highlight, and the
+    // narrow groove between them is a shadow line the eye can resolve.
+    [0.000, 0.000], [0.196, 0.000],
+    [0.214, 0.004], [0.228, 0.011],
+    // Plinth band: the widest point of the foot.
+    [0.282, 0.018], [0.290, 0.028], [0.288, 0.038],
+    // Parting groove, cut back into the band.
+    [0.274, 0.044], [0.264, 0.049], [0.273, 0.054],
+    // Cove in to the waist.
+    [0.256, 0.061], [0.242, 0.068],
+    // Lower bead.
+    [0.251, 0.073], [0.257, 0.079], [0.252, 0.085],
+    // Groove between the beads.
+    [0.239, 0.089],
+    // Upper bead, a touch narrower so the pair is not a single fat torus.
+    [0.249, 0.094], [0.253, 0.100], [0.247, 0.105], [0.235, 0.109],
+    // Land the stem rises from.
+    [0.222, 0.114],
   ].map(([r, y]) => [r * scale, y * scale]);
 }
 
@@ -166,10 +178,15 @@ function pawnGeo() {
     ...pedestal(s),
     // Concave stem sweeping up to the collar.
     [0.168, 0.238], [0.150, 0.300], [0.133, 0.370], [0.123, 0.430],
-    // Turned collar: fillet, bead, waist, fillet. Kept narrower than the head,
-    // as on a Staunton pawn, so the bead reads as a ring rather than a flange.
-    [0.146, 0.534], [0.157, 0.544], [0.159, 0.556], [0.150, 0.566],
-    [0.152, 0.578], [0.148, 0.590], [0.119, 0.606],
+    // Turned collar, cut rather than moulded: a neck groove, a fillet into the
+    // main bead, a narrow groove, a second smaller bead, then the waist the head
+    // swells out of. Kept narrower than the head, as on a Staunton pawn, so the
+    // beads read as rings rather than as a flange.
+    [0.138, 0.528], [0.129, 0.533], [0.138, 0.538],
+    [0.150, 0.545], [0.158, 0.552], [0.160, 0.560], [0.152, 0.567],
+    [0.141, 0.572],
+    [0.150, 0.578], [0.152, 0.585], [0.145, 0.591], [0.134, 0.597],
+    [0.121, 0.606],
     // Flattened spherical head.
     [0.151, 0.662], [0.169, 0.714], [0.166, 0.762], [0.141, 0.805],
     [0.089, 0.840], [0.031, 0.858], [0.000, 0.862],
@@ -185,36 +202,58 @@ function rookGeo() {
   const profile = [
     ...pedestal(s),
     [0.190, 0.240], [0.186, 0.330], [0.182, 0.420], [0.181, 0.500],
-    [0.184, 0.560],
+    // A turned band under the crown: a raised ring, then a groove, so the shaft
+    // meets the flare through a moulding instead of running straight into it.
+    [0.184, 0.516], [0.193, 0.522], [0.192, 0.530], [0.183, 0.535], [0.181, 0.542],
     // Flared crown.
-    [0.216, 0.590], [0.252, 0.632], [0.259, 0.672], [0.257, bodyTop],
-    // Close the top: without this the crown is an open tube and the interior
-    // shows through from above.
-    [0.250, bodyTop + 0.014], [0.190, bodyTop + 0.024], [0.110, bodyTop + 0.030],
-    [0.000, bodyTop + 0.032],
+    [0.197, 0.556], [0.216, 0.590], [0.252, 0.632], [0.259, 0.672], [0.257, bodyTop],
+    // Close the top as a WELL rather than a dome. The wall carries the merlons,
+    // so the surface behind them has to sit below the rim; a dome filled the cup
+    // to within a few thousandths of the merlon tops and the tower read as a
+    // solid cylinder with bumps. It still closes the volume, so no interior shows.
+    [0.252, bodyTop + 0.004], [0.243, bodyTop - 0.008], [0.196, bodyTop - 0.016],
+    [0.120, bodyTop - 0.021], [0.052, bodyTop - 0.023], [0.000, bodyTop - 0.024],
   ].map(([r, y]) => [r, y * (PIECE_HEIGHT[ROOK] / bodyTop)]);
   const parts = [lathe(profile)];
 
-  // Battlements: a ring of raised blocks. This is what makes a rook read as a
-  // tower rather than a plain cylinder from a distance.
+  // Battlements: six merlons standing on the crown. This is what makes a rook
+  // read as a tower rather than a plain cylinder from a distance.
+  //
+  // Each one is a four-sided cylinder — a square frustum — rather than a box, so
+  // it narrows towards the top the way a carved merlon does; a box reads as a
+  // brick pushed into the rim. Rotating the frustum 45 degrees puts its flat
+  // faces against the tower's circumference. Circumradius 0.0742 gives a 0.105
+  // wide base, tapering to 0.090 at the top, and the height and seat are set so
+  // the merlons finish at exactly the height the boxes did (1.059).
   const crownY = PIECE_HEIGHT[ROOK] * 0.994;
-  const blockCount = 6;
-  for (let i = 0; i < blockCount; i++) {
-    const a = (i / blockCount) * TWO_PI;
-    const block = new THREE.BoxGeometry(0.104, 0.070, 0.104);
-    block.translate(Math.cos(a) * 0.226, crownY + 0.030, Math.sin(a) * 0.226);
-    block.rotateY(0);
-    parts.push(block);
+  const merlonCount = 6;
+  const merlonHeight = 0.094;
+  for (let i = 0; i < merlonCount; i++) {
+    const a = (i / merlonCount) * TWO_PI;
+    const merlon = new THREE.CylinderGeometry(0.0636, 0.0742, merlonHeight, 4, 1);
+    merlon.rotateY(Math.PI / 4);
+    merlon.translate(
+      Math.cos(a) * 0.226,
+      crownY + 0.018,
+      Math.sin(a) * 0.226,
+    );
+    parts.push(merlon);
   }
-  const ring = new THREE.CylinderGeometry(0.256, 0.246, 0.034, RADIAL_SEGMENTS, 1, true);
-  ring.translate(0, crownY + 0.010, 0);
-  parts.push(ring);
+  // A moulded bead where the merlons meet the crown. It hides the joints and
+  // gives the battlements a base to stand on; between merlons it reads as the
+  // corbel ring a real crenellated tower has.
+  // Segments are kept low: the bead is thin, so 44 around and 8 across reads as
+  // round, and every one of the six pieces pays for it on every frame.
+  const bead = new THREE.TorusGeometry(0.226, 0.018, 8, 44);
+  bead.rotateX(Math.PI / 2);
+  bead.translate(0, crownY + 0.002, 0);
+  parts.push(bead);
 
-  // The battlements are boxes and the crown ring is a cylinder; their UVs span
-  // 0..1 across faces only ~0.1-0.25 world units wide, where the lathe wraps 0..1
-  // around a ~1.4 unit circumference. Left alone, the marble renders about 14x
-  // finer on the battlements than on the tower. Matching densities before the
-  // merge is the only chance to do it — afterwards the parts are one geometry.
+  // The merlons and the bead are primitives; their UVs span 0..1 across faces
+  // only ~0.1-0.25 world units wide, where the lathe wraps 0..1 around a ~1.4
+  // unit circumference. Left alone, the marble renders about 14x finer on the
+  // battlements than on the tower. Matching densities before the merge is the
+  // only chance to do it — afterwards the parts are one geometry.
   const bodyDensity = uvDensity(parts[0]);
   for (let i = 1; i < parts.length; i++) matchUvDensity(parts[i], bodyDensity);
 
@@ -693,9 +732,14 @@ function bishopGeo() {
     ...pedestal(s),
     [0.185, 0.245], [0.172, 0.320], [0.160, 0.400], [0.151, 0.470],
     [0.146, 0.520],
-    // Turned collar: fillet, bead, waist, fillet.
-    [0.172, 0.532], [0.192, 0.544], [0.194, 0.558], [0.176, 0.570],
-    [0.178, 0.582], [0.170, 0.594], [0.151, 0.604], [0.136, 0.616],
+    // Turned collar, cut rather than moulded: neck groove, fillet, the main
+    // bead, a groove, a second smaller bead, then the waist the mitre swells
+    // out of. Same order of cuts as the pawn's collar, so the set matches.
+    [0.166, 0.526], [0.158, 0.531], [0.166, 0.536],
+    [0.180, 0.543], [0.190, 0.550], [0.194, 0.558], [0.186, 0.565],
+    [0.175, 0.570],
+    [0.183, 0.576], [0.184, 0.582], [0.176, 0.589], [0.163, 0.594],
+    [0.148, 0.601], [0.136, 0.612],
     // Mitre body.
     [0.169, 0.660], [0.181, 0.720], [0.175, 0.790], [0.151, 0.856],
     [0.113, 0.912], [0.071, 0.950],
@@ -729,9 +773,13 @@ function queenGeo() {
   const profile = [
     ...pedestal(s),
     [0.205, 0.250], [0.180, 0.330], [0.163, 0.420], [0.153, 0.500],
-    [0.151, 0.560],
-    [0.186, 0.574], [0.204, 0.586], [0.206, 0.600], [0.190, 0.610],
-    [0.192, 0.622], [0.184, 0.632], [0.161, 0.640],
+    // Turned collar: neck groove, fillet, main bead, groove, second smaller
+    // bead, waist — the same order of cuts as the pawn and bishop.
+    [0.178, 0.566], [0.170, 0.571], [0.178, 0.576],
+    [0.194, 0.584], [0.204, 0.592], [0.206, 0.600], [0.197, 0.606],
+    [0.188, 0.611],
+    [0.194, 0.617], [0.195, 0.623], [0.187, 0.629], [0.174, 0.634],
+    [0.161, 0.640],
     // Bowl flaring outward to the rim.
     [0.191, 0.690], [0.225, 0.760], [0.247, 0.836], [0.259, 0.898],
     [0.265, 0.936], [0.263, 0.960],
@@ -753,6 +801,7 @@ function queenGeo() {
   const crownY = 0.966 * scale;
   const spikeR = 0.252;
   const spikeCount = 9;
+  const spikeStep = TWO_PI / spikeCount;
   for (let i = 0; i < spikeCount; i++) {
     const a = (i / spikeCount) * TWO_PI + 0.12;
     const tip = new THREE.SphereGeometry(0.036, 14, 10);
@@ -761,6 +810,19 @@ function queenGeo() {
     const stem = new THREE.CylinderGeometry(0.019, 0.038, 0.088, 12);
     stem.translate(Math.cos(a) * spikeR, crownY + 0.026, Math.sin(a) * spikeR);
     ring.push(stem);
+    // A pearl set between this spike and the next. Alternating a tall spike with
+    // a low pearl is what makes the ring read as a jewelled coronet rather than
+    // as a row of identical teeth, and it fills the gap the eye otherwise sees
+    // between the stems.
+    const pearlA = a + spikeStep / 2;
+    const pearl = new THREE.SphereGeometry(0.021, 10, 7);
+    pearl.scale(1, 0.82, 1);
+    pearl.translate(
+      Math.cos(pearlA) * spikeR * 0.97,
+      crownY + 0.040,
+      Math.sin(pearlA) * spikeR * 0.97,
+    );
+    ring.push(pearl);
   }
   const rim = new THREE.TorusGeometry(spikeR * 0.99, 0.030, 12, RADIAL_SEGMENTS);
   rim.rotateX(Math.PI / 2);
@@ -791,10 +853,14 @@ function kingGeo() {
     ...pedestal(s),
     [0.215, 0.250], [0.188, 0.330], [0.171, 0.420], [0.161, 0.500],
     [0.159, 0.560],
-    // Turned collar: fillet, bead, waist, fillet. A flat disc reads as a ring
-    // pushed onto the stem; the waist is what makes it look cut from the block.
-    [0.192, 0.574], [0.210, 0.586], [0.212, 0.600], [0.196, 0.610],
-    [0.198, 0.622], [0.190, 0.632], [0.169, 0.640],
+    // Turned collar: neck groove, fillet, main bead, groove, second smaller
+    // bead, waist. A flat disc reads as a ring pushed onto the stem; these cuts
+    // are what make it look turned from the block, and they match the pawn's.
+    [0.184, 0.566], [0.176, 0.571], [0.184, 0.576],
+    [0.200, 0.584], [0.210, 0.592], [0.212, 0.600], [0.203, 0.606],
+    [0.194, 0.611],
+    [0.200, 0.617], [0.201, 0.623], [0.193, 0.629], [0.180, 0.634],
+    [0.169, 0.640],
     [0.197, 0.694], [0.227, 0.766], [0.245, 0.842], [0.253, 0.900],
     // Crown shoulder rolling over into a closed dome.
     [0.251, 0.934], [0.236, 0.960], [0.196, 0.979], [0.130, 0.993],
@@ -812,16 +878,29 @@ function kingGeo() {
   rim.rotateX(Math.PI / 2);
   rim.translate(0, BODY_TOP - 0.075, 0);
 
+  // A bead where the orb meets the dome, and a flared socket where the cross
+  // leaves the orb. Both are sized against the orb's own radius at that height
+  // (0.063 six thousandths above the dome, 0.054 where the socket's base sits):
+  // a band tucked inside that silhouette is simply invisible, which is what the
+  // first attempt at this produced.
+  const orbBand = new THREE.TorusGeometry(0.066, 0.013, 8, 40);
+  orbBand.rotateX(Math.PI / 2);
+  orbBand.translate(0, BODY_TOP + 0.006, 0);
+
   const crossY = BODY_TOP + 0.168;
   const vert = new THREE.BoxGeometry(0.050, 0.196, 0.050);
   vert.translate(0, crossY, 0);
   const horiz = new THREE.BoxGeometry(0.144, 0.050, 0.050);
   horiz.translate(0, crossY + 0.016, 0);
+  // The socket sits just clear of the orb's top (1.419): inside that silhouette
+  // it is simply hidden, so it is placed where the cross's foot is visible.
+  const socket = new THREE.CylinderGeometry(0.034, 0.040, 0.026, 16);
+  socket.translate(0, BODY_TOP + 0.096, 0);
 
   return {
     shell: body,
     inlays: [],
-    crowns: [orb, rim, vert, horiz],
+    crowns: [orb, rim, vert, horiz, orbBand, socket],
   };
 }
 

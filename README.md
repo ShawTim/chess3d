@@ -43,9 +43,20 @@ Any static host works. To deploy, publish the repository root as-is (see
 **Presentation**
 - Procedurally generated Staunton pieces: the pawn, rook, bishop, queen and king
   are lathed from hand-tuned profiles; the knight's head is lofted along a
-  curved spine. Every foot is a turned pedestal — flat underside, fillet, plinth
-  band, cove and a separate bead ring — and the pawn, bishop, queen and king
-  carry a waisted collar rather than a flat disc pushed onto the stem.
+  curved spine.
+- The profiles are treated as cut work, not as a smooth surface of revolution:
+  every corner sharper than 31° is creased, so a bead's highlight stops at its
+  arris instead of being averaged away, and each piece carries a sub-millimetre
+  ovality so no section is a perfect circle. Both are asserted in
+  `tests/geometry.test.mjs`, which also checks that the creasing stays at the
+  corners (the rook's straight body reports none).
+- Turned detail rather than stacked cones: every foot is a flat underside,
+  fillet, plinth band, parting groove, cove and a pair of beads; the pawn,
+  bishop, queen and king share a collar cut as neck groove, fillet, main bead,
+  groove, second bead and waist. The rook's crown is a moulded band, six tapered
+  merlons standing on a bead ring, and a recessed well behind them; the queen's
+  coronet alternates spikes with set pearls; the king's orb carries a ferrule at
+  the dome and a socket where the cross leaves it.
 - Procedural wood and marble textures with derived roughness and normal maps.
   Each board square samples a different part of the tiling grain (and half are
   rotated a quarter turn), so the 32 light squares are no longer identical.
