@@ -59,8 +59,15 @@ function lathe(profile, segments = RADIAL_SEGMENTS) {
 /** Radius/height pairs describing the turned pedestal foot every piece shares. */
 function pedestal(scale) {
   return [
-    [0.00, 0.000], [0.215, 0.000], [0.258, 0.020], [0.285, 0.052],
-    [0.290, 0.074], [0.258, 0.092], [0.222, 0.100],
+    // A turned foot, not a cone: flat underside, rounded fillet, plinth band,
+    // cove, then a separate bead ring. The bead is the part that catches the
+    // key light and tells the eye the base was cut on a lathe.
+    [0.000, 0.000], [0.198, 0.000],
+    [0.216, 0.005], [0.230, 0.013],
+    [0.286, 0.021], [0.290, 0.038],
+    [0.274, 0.049], [0.246, 0.059], [0.241, 0.069],
+    [0.262, 0.077], [0.264, 0.088],
+    [0.245, 0.096], [0.224, 0.104],
   ].map(([r, y]) => [r * scale, y * scale]);
 }
 
@@ -72,9 +79,10 @@ function pawnGeo() {
     ...pedestal(s),
     // Concave stem sweeping up to the collar.
     [0.168, 0.238], [0.150, 0.300], [0.133, 0.370], [0.123, 0.430],
-    [0.119, 0.482], [0.121, 0.520],
-    // Collar disc.
-    [0.154, 0.546], [0.152, 0.586], [0.119, 0.606],
+    // Turned collar: fillet, bead, waist, fillet. Kept narrower than the head,
+    // as on a Staunton pawn, so the bead reads as a ring rather than a flange.
+    [0.146, 0.534], [0.157, 0.544], [0.159, 0.556], [0.150, 0.566],
+    [0.152, 0.578], [0.148, 0.590], [0.119, 0.606],
     // Flattened spherical head.
     [0.151, 0.662], [0.169, 0.714], [0.166, 0.762], [0.141, 0.805],
     [0.089, 0.840], [0.031, 0.858], [0.000, 0.862],
@@ -598,8 +606,9 @@ function bishopGeo() {
     ...pedestal(s),
     [0.185, 0.245], [0.172, 0.320], [0.160, 0.400], [0.151, 0.470],
     [0.146, 0.520],
-    // Collar disc.
-    [0.179, 0.548], [0.181, 0.580], [0.151, 0.600], [0.136, 0.615],
+    // Turned collar: fillet, bead, waist, fillet.
+    [0.172, 0.532], [0.192, 0.544], [0.194, 0.558], [0.176, 0.570],
+    [0.178, 0.582], [0.170, 0.594], [0.151, 0.604], [0.136, 0.616],
     // Mitre body.
     [0.169, 0.660], [0.181, 0.720], [0.175, 0.790], [0.151, 0.856],
     [0.113, 0.912], [0.071, 0.950],
@@ -634,7 +643,8 @@ function queenGeo() {
     ...pedestal(s),
     [0.205, 0.250], [0.180, 0.330], [0.163, 0.420], [0.153, 0.500],
     [0.151, 0.560],
-    [0.191, 0.592], [0.197, 0.616], [0.161, 0.640],
+    [0.186, 0.574], [0.204, 0.586], [0.206, 0.600], [0.190, 0.610],
+    [0.192, 0.622], [0.184, 0.632], [0.161, 0.640],
     // Bowl flaring outward to the rim.
     [0.191, 0.690], [0.225, 0.760], [0.247, 0.836], [0.259, 0.898],
     [0.265, 0.936], [0.263, 0.960],
@@ -694,7 +704,10 @@ function kingGeo() {
     ...pedestal(s),
     [0.215, 0.250], [0.188, 0.330], [0.171, 0.420], [0.161, 0.500],
     [0.159, 0.560],
-    [0.197, 0.592], [0.203, 0.616], [0.169, 0.640],
+    // Turned collar: fillet, bead, waist, fillet. A flat disc reads as a ring
+    // pushed onto the stem; the waist is what makes it look cut from the block.
+    [0.192, 0.574], [0.210, 0.586], [0.212, 0.600], [0.196, 0.610],
+    [0.198, 0.622], [0.190, 0.632], [0.169, 0.640],
     [0.197, 0.694], [0.227, 0.766], [0.245, 0.842], [0.253, 0.900],
     // Crown shoulder rolling over into a closed dome.
     [0.251, 0.934], [0.236, 0.960], [0.196, 0.979], [0.130, 0.993],

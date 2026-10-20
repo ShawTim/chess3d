@@ -43,7 +43,9 @@ Any static host works. To deploy, publish the repository root as-is (see
 **Presentation**
 - Procedurally generated Staunton pieces: the pawn, rook, bishop, queen and king
   are lathed from hand-tuned profiles; the knight's head is lofted along a
-  curved spine.
+  curved spine. Every foot is a turned pedestal — flat underside, fillet, plinth
+  band, cove and a separate bead ring — and the pawn, bishop, queen and king
+  carry a waisted collar rather than a flat disc pushed onto the stem.
 - Procedural wood and marble textures with derived roughness and normal maps.
   Each board square samples a different part of the tiling grain (and half are
   rotated a quarter turn), so the 32 light squares are no longer identical.
