@@ -39,6 +39,22 @@ export class AudioEngine {
     this.master.connect(shelf);
     shelf.connect(this.ctx.destination);
 
+    // A very short room around the set. Everything here is synthesised, so a
+    // dry knock reads as a UI click; a 0.45 s tail at low level is what makes it
+    // sound like wood on wood in a room. The return is high-passed so the
+    // reverb adds air rather than muddying the body of the knock.
+    const verb = this.ctx.createConvolver();
+    verb.buffer = this.makeImpulse(0.45, 2.8);
+    const verbHp = this.ctx.createBiquadFilter();
+    verbHp.type = 'highpass';
+    verbHp.frequency.value = 200;
+    const wet = this.ctx.createGain();
+    wet.gain.value = 0.13;
+    this.master.connect(verb);
+    verb.connect(verbHp);
+    verbHp.connect(wet);
+    wet.connect(shelf);
+
     this.noiseBuffer = this.makeNoiseBuffer(0.5);
   }
 
@@ -49,6 +65,30 @@ export class AudioEngine {
     for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
     return buf;
   }
+  /**
+
+   * A procedural room impulse: low-passed noise under an exponential tail,
+   * with a few milliseconds of pre-delay so the direct knock stays separate.
+   * Built once at unlock time, so playback costs nothing but the convolution.
+   */
+  makeImpulse(seconds = 0.45, decay = 2.8) {
+    const rate = this.ctx.sampleRate;
+    const len = Math.max(1, Math.floor(rate * seconds));
+    const pre = Math.min(len, Math.floor(rate * 0.006));
+    const buf = this.ctx.createBuffer(2, len, rate);
+    for (let ch = 0; ch < 2; ch++) {
+      const data = buf.getChannelData(ch);
+      let lp = 0;
+      for (let i = 0; i < len; i++) {
+        if (i < pre) { data[i] = 0; continue; }
+        const t = (i - pre) / (len - pre);
+        lp = lp * 0.72 + (Math.random() * 2 - 1) * 0.28;
+        data[i] = lp * Math.pow(1 - t, decay);
+      }
+    }
+    return buf;
+  }
+
 
   setEnabled(on) {
     this.enabled = on;

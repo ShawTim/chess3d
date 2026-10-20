@@ -61,8 +61,12 @@ Any static host works. To deploy, publish the repository root as-is (see
   final grade pass with film grain and a touch of lens aberration.
 - Animated moves: pieces slide with a slight arc, knights leap and roll, the
   picked piece lifts off the board, captured pieces dissolve into dust,
-  promotions pop.
-- Synthesised sound effects (wooden knocks, chimes, check sting) via WebAudio.
+  promotions pop, and a landed piece compresses a hair before it springs back.
+  Knights kick up a little dust on landing; reduced-motion users keep the slide
+  and lose the decoration.
+- Synthesised sound effects (wooden knocks, chimes, check sting) via WebAudio,
+  played through a generated 0.45 s room so a knock reads as wood in a room
+  rather than a dry UI click.
 - A phone layout that collapses both side panels into an on-demand sheet, so the
   board gets the screen; framing adapts to the viewport shape and leans towards
   a plan view on tall screens so the board fills the space instead of floating

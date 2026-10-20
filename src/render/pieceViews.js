@@ -79,6 +79,12 @@ export class PieceViews {
     });
     this.shadows = new Map();
 
+    // Motion here is decoration. When the OS asks for reduced motion, skip the
+    // settle and the landing dust; the move itself still slides, because it
+    // carries the game state and a cut would be more confusing than a slide.
+    this.reduceMotion = typeof window !== 'undefined'
+      && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+
     // Which piece is currently picked up, so it can rise off the board.
     this.selectedId = null;
 
@@ -98,7 +104,10 @@ export class PieceViews {
       sprite.visible = false;
       sprite.scale.setScalar(0.6);
       this.group.add(sprite);
-      this.puffs.push({ sprite, mat, life: 0, duration: 0, velocity: new THREE.Vector3(), anim: null });
+      this.puffs.push({
+        sprite, mat, life: 0, duration: 0, velocity: new THREE.Vector3(), anim: null,
+        baseScale: 0.35, baseOpacity: 0.85,
+      });
     }
   }
 
@@ -347,18 +356,22 @@ export class PieceViews {
     this.spawnPuff(group.position, group.userData.color);
   }
 
-  spawnPuff(position, color) {
+  spawnPuff(position, color, {
+    scale = 0.35, opacity = 0.85, duration = 0.62, rise = 0.45, y = 0.24,
+  } = {}) {
     const p = this.puffs.find((x) => !x.sprite.visible) ?? this.puffs[0];
     p.sprite.visible = true;
-    p.sprite.position.copy(position).setY(0.24);
-    p.mat.opacity = 0.85;
+    p.sprite.position.copy(position).setY(y);
+    p.mat.opacity = opacity;
     p.mat.color.set(color === WHITE ? 0xe8e2d6 : 0x8a8a94);
-    p.sprite.scale.setScalar(0.35);
+    p.sprite.scale.setScalar(scale);
+    p.baseScale = scale;
+    p.baseOpacity = opacity;
     p.life = 0;
-    p.duration = 0.62;
+    p.duration = duration;
     p.velocity.set(
       (Math.random() - 0.5) * 0.5,
-      0.45 + Math.random() * 0.3,
+      rise + Math.random() * 0.15,
       (Math.random() - 0.5) * 0.5,
     );
   }
@@ -405,7 +418,35 @@ export class PieceViews {
           a.group.position.copy(a.dest);
           a.group.position.y = LIFT;
           a.group.rotation.set(0, 0, 0);
+          // Resolve first, then let the settle and the landing dust play out
+          // underneath. The controller must not wait on decoration.
+          if (!this.reduceMotion) {
+            this.anims.push({
+              kind: 'settle', group: a.group, elapsed: 0, duration: 0.20,
+            });
+            if (a.isKnight) {
+              // A leaping knight lands hard enough to lift a little dust.
+              this.spawnPuff(a.dest, pieceColorFromGroup(a.group), {
+                scale: 0.16, opacity: 0.26, duration: 0.45, rise: 0.16, y: 0.10,
+              });
+            }
+          }
           a.resolve?.();
+          this.anims.splice(i, 1);
+        }
+        continue;
+      }
+
+      // A landed piece compresses a hair, then springs back. Without this the
+      // move ends on a hard stop and reads as a teleport rather than a touch.
+      // It is purely cosmetic, so it runs after the move has already resolved.
+      if (a.kind === 'settle') {
+        a.elapsed += dt;
+        const st = Math.min(a.elapsed / a.duration, 1);
+        const k = Math.sin(Math.PI * st);
+        a.group.scale.set(1 + 0.014 * k, 1 - 0.022 * k, 1 + 0.014 * k);
+        if (st >= 1) {
+          a.group.scale.set(1, 1, 1);
           this.anims.splice(i, 1);
         }
         continue;
@@ -490,8 +531,8 @@ export class PieceViews {
       }
       p.velocity.y -= dt * 1.4;
       p.sprite.position.addScaledVector(p.velocity, dt);
-      p.sprite.scale.setScalar(0.35 + t * 1.5);
-      p.mat.opacity = 0.85 * (1 - t) ** 1.4;
+      p.sprite.scale.setScalar(p.baseScale * (1 + t * 4.0));
+      p.mat.opacity = p.baseOpacity * (1 - t) ** 1.4;
     }
 
     // Contact shadows follow their piece across the board but stay pinned to the
@@ -522,7 +563,7 @@ export class PieceViews {
 
   /** True while any move/dissolve/promote animation is still running. */
   get busy() {
-    return this.anims.some((a) => a.kind !== 'spawn');
+    return this.anims.some((a) => a.kind !== 'spawn' && a.kind !== 'settle');
   }
 
   dispose() {
