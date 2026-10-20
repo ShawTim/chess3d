@@ -44,14 +44,84 @@ const TWO_PI = Math.PI * 2;
 /** Segments around the axis of revolution; 64 keeps silhouettes clean. */
 const RADIAL_SEGMENTS = 64;
 
+/** Angle (radians) above which a profile corner is treated as a cut edge. */
+const CREASE_ANGLE = 0.55;
+
 /**
- * Build a lathe geometry from a [radius, height] profile with smooth normals.
- * Latitude/Longitude UVs come free with LatheGeometry, which we need so these
- * merge cleanly with the other primitives.
+ * Repeat the [radius, height] point at every sharp corner of a profile.
+ *
+ * LatheGeometry shares one ring of vertices between the faces above and below
+ * each profile point, so `computeVertexNormals` averages the two sides and every
+ * bead, fillet and collar ends up shaded as if it had been sanded round. A
+ * repeated point gives each side its own ring at the same position: the normals
+ * then disagree across the arris and the highlight stops at the edge, which is
+ * what a cut bead actually does. Verified in tests/geometry.test.mjs.
  */
-function lathe(profile, segments = RADIAL_SEGMENTS) {
-  const points = profile.map(([r, y]) => new THREE.Vector2(Math.max(r, 1e-4), y));
+function creaseProfile(profile, minAngle = CREASE_ANGLE) {
+  const out = [profile[0]];
+  for (let i = 1; i < profile.length - 1; i++) {
+    const [r0, y0] = profile[i - 1];
+    const [r1, y1] = profile[i];
+    const [r2, y2] = profile[i + 1];
+    out.push(profile[i]);
+    const la = Math.hypot(r1 - r0, y1 - y0);
+    const lb = Math.hypot(r2 - r1, y2 - y1);
+    if (la < 1e-9 || lb < 1e-9) continue;
+    const cos = ((r1 - r0) * (r2 - r1) + (y1 - y0) * (y2 - y1)) / (la * lb);
+    if (Math.acos(Math.max(-1, Math.min(1, cos))) > minAngle) out.push(profile[i]);
+  }
+  out.push(profile[profile.length - 1]);
+  return out;
+}
+
+/**
+ * A few tenths of a percent of ovality, applied to the radius.
+ *
+ * Real turned pieces are never perfect surfaces of revolution: the blank is
+ * hand-held and the gouge leaves a slightly elliptical section that shifts as
+ * the piece rises. The warp is two low harmonics, faded out at the very bottom
+ * so the piece still sits flat, and applied before normals are computed so the
+ * shading follows the finished surface rather than a idealised one.
+ */
+let latheCount = 0;
+function handFinish(geo, amount) {
+  const pos = geo.attributes.position;
+  let minY = Infinity, maxY = -Infinity;
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i);
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+  const h = Math.max(1e-6, maxY - minY);
+  const phase = (latheCount++ * 1.913) % TWO_PI;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), z = pos.getZ(i);
+    const r = Math.hypot(x, z);
+    if (r < 1e-5) continue;
+    const t = (pos.getY(i) - minY) / h;
+    const fade = Math.min(1, t / 0.06);
+    const theta = Math.atan2(z, x);
+    const k = Math.cos(theta * 3 + phase) * 0.62
+      + Math.cos(theta * 5 - phase * 1.7) * 0.38;
+    const s = 1 + amount * k * fade;
+    pos.setX(i, x * s);
+    pos.setZ(i, z * s);
+  }
+  pos.needsUpdate = true;
+}
+
+/**
+ * Build a lathe geometry from a [radius, height] profile.
+ *
+ * Latitude/Longitude UVs come free with LatheGeometry, which we need so these
+ * merge cleanly with the other primitives. Profiles are creased at their cut
+ * edges and given a hand-worked ovality before the normals are built.
+ */
+function lathe(profile, segments = RADIAL_SEGMENTS, { hand = 0.006 } = {}) {
+  const points = creaseProfile(profile)
+    .map(([r, y]) => new THREE.Vector2(Math.max(r, 1e-4), y));
   const geo = new THREE.LatheGeometry(points, segments);
+  if (hand > 0) handFinish(geo, hand);
   geo.computeVertexNormals();
   return geo;
 }
