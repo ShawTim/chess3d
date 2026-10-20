@@ -1141,3 +1141,15 @@ canvas#scene:active { cursor: grabbing; }
   }
   .review-banner.show { transform: translate(-50%, 0); }
 }
+
+/* The confirmation and game-over dialogs must block the board behind them. */
+#ui .confirm.show,
+#ui .modal-backdrop.show { pointer-events: auto; }
+
+/* Confirmation copy is a sentence, not a shouted status line. */
+.confirm .modal-detail {
+  text-transform: none;
+  letter-spacing: 0.01em;
+  font-size: 12.5px;
+  line-height: 1.6;
+}

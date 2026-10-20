@@ -232,6 +232,24 @@ export class Hud {
     card.append(this.modalTitle, this.modalDetail, this.modalActions);
     this.modal.appendChild(card);
     this.root.appendChild(this.modal);
+
+    // Confirmation dialog, used before destructive actions such as starting a
+    // new game over a live position. The game-over modal is separate because it
+    // has different actions and copy.
+    this.confirmModal = el('div', 'modal-backdrop confirm');
+    this.confirmModal.style.display = 'none';
+    this.confirmModal.setAttribute('role', 'dialog');
+    this.confirmModal.setAttribute('aria-modal', 'true');
+    const confirmCard = el('div', 'modal-card');
+    this.confirmTitle = el('h2', 'modal-title', '');
+    this.confirmDetail = el('p', 'modal-detail', '');
+    this.confirmActions = el('div', 'modal-actions');
+    this.confirmYes = el('button', 'btn primary', 'Continue');
+    this.confirmNo = el('button', 'btn', 'Cancel');
+    this.confirmActions.append(this.confirmYes, this.confirmNo);
+    confirmCard.append(this.confirmTitle, this.confirmDetail, this.confirmActions);
+    this.confirmModal.appendChild(confirmCard);
+    this.root.appendChild(this.confirmModal);
   }
 
   sectionTitle(text) {
@@ -273,6 +291,10 @@ export class Hud {
 
   get sheetOpen() {
     return this.sheet.classList.contains('open');
+  }
+
+  get confirmOpen() {
+    return this.confirmModal.classList.contains('show');
   }
 
   labeledRow(label, content) {
@@ -496,6 +518,48 @@ export class Hud {
   hideGameOver() {
     this.modal.classList.remove('show');
     this.modal.style.display = 'none';
+  }
+
+  /**
+   * Ask before a destructive action. Returns via callbacks so the HUD stays
+   * state-free; Enter accepts, Escape cancels, and a backdrop click cancels.
+   */
+  showConfirm({
+    title, detail = '', confirmLabel = 'Continue', cancelLabel = 'Cancel',
+    onConfirm, onCancel,
+  } = {}) {
+    this.confirmTitle.textContent = title;
+    this.confirmDetail.textContent = detail;
+    this.confirmYes.textContent = confirmLabel;
+    this.confirmNo.textContent = cancelLabel;
+    this.confirmModal.style.display = 'flex';
+    requestAnimationFrame(() => this.confirmModal.classList.add('show'));
+
+    const cleanup = () => {
+      window.removeEventListener('keydown', onKey);
+      this.confirmModal.onclick = null;
+      this.confirmModal.classList.remove('show');
+      this.confirmModal.style.display = 'none';
+      this._confirmCleanup = null;
+    };
+    const accept = () => { cleanup(); onConfirm?.(); };
+    const cancel = () => { cleanup(); onCancel?.(); };
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+      else if (e.key === 'Enter') { e.preventDefault(); accept(); }
+    };
+    this.confirmYes.onclick = accept;
+    this.confirmNo.onclick = cancel;
+    this.confirmModal.onclick = (e) => {
+      if (e.target === this.confirmModal) cancel();
+    };
+    window.addEventListener('keydown', onKey);
+    this._confirmCleanup = cleanup;
+    this.confirmYes.focus();
+  }
+
+  hideConfirm() {
+    this._confirmCleanup?.();
   }
 
   /** Reflect the player's colour in the side selector. */

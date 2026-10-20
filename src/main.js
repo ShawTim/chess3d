@@ -17,6 +17,7 @@ import { AudioEngine } from './audio/sfx.js';
 import { GameController } from './game/controller.js';
 import { WHITE } from './engine/chess.js';
 import { DIFFICULTIES } from './engine/ai.js';
+import { createPuffTexture } from './render/textures.js';
 
 const loader = document.getElementById('loader');
 const loaderNote = document.getElementById('loader-note');
@@ -62,13 +63,34 @@ async function boot() {
   const board = createBoard(lib, {});
   rig.scene.add(board.group);
 
-  // A large, softly lit disc under the board stands in for a table.
+  // A large, softly lit disc under the board stands in for a table. It sits
+  // below the felt pad's bottom face, so the pad reads as resting on it instead
+  // of being sliced by the floor plane.
   const groundGeo = new THREE.CircleGeometry(40, 64);
   groundGeo.rotateX(-Math.PI / 2);
   const ground = new THREE.Mesh(groundGeo, lib.ground);
-  ground.position.y = -0.32;
+  ground.position.y = -0.38;
   ground.receiveShadow = true;
   rig.scene.add(ground);
+
+  // A warm pool of practical light on the table around the set. Additive and
+  // very low opacity: it should read as spill from the key, not as a decal.
+  const poolTex = createPuffTexture({ size: 128 });
+  const poolMat = new THREE.MeshBasicMaterial({
+    map: poolTex,
+    color: 0xffcf9a,
+    transparent: true,
+    opacity: 0.17,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  const poolGeo = new THREE.PlaneGeometry(24, 24);
+  poolGeo.rotateX(-Math.PI / 2);
+  const pool = new THREE.Mesh(poolGeo, poolMat);
+  pool.position.y = -0.377;
+  pool.renderOrder = 0;
+  rig.scene.add(pool);
 
   // ---------------------------------------------------------------- pieces --
   await setLoading('Turning the pieces');
@@ -77,6 +99,24 @@ async function boot() {
   // -------------------------------------------------------------------- ui --
   const audio = new AudioEngine();
   let controller = null;
+
+  /**
+   * Start a new game, but never throw away a live position without asking.
+   * A finished game needs no confirmation.
+   */
+  function requestNewGame() {
+    if (!controller || controller.phase === 'over' || controller.moveList.length === 0) {
+      controller?.newGame();
+      return;
+    }
+    if (hud.confirmOpen) return;
+    hud.showConfirm({
+      title: 'Start a new game?',
+      detail: 'The current position will be lost.',
+      confirmLabel: 'New game',
+      onConfirm: () => controller.newGame(),
+    });
+  }
 
   // Settings survive a reload: a player who turned off the sound or prefers the
   // top view should not have to redo that on every visit.
@@ -100,13 +140,26 @@ async function boot() {
       audio.unlock();
       audio.playUi();
       // Choosing the side you are already playing should not restart anything.
-      // The explicit New game button is the way to start over.
-      if (color === controller.playerColor && controller.moveList.length) {
-        hud.showToast('Already playing ' + (color === WHITE ? 'White' : 'Black'));
+      if (color === controller.playerColor) {
+        if (controller.moveList.length) {
+          hud.showToast('Already playing ' + (color === WHITE ? 'White' : 'Black'));
+        }
         return;
       }
-      controller.setPlayerColor(color);
-      hud.setSide(color);
+      const start = () => {
+        controller.setPlayerColor(color);
+        hud.setSide(color);
+      };
+      if (controller.moveList.length && controller.phase !== 'over') {
+        hud.showConfirm({
+          title: `Start a new game as ${color === WHITE ? 'White' : 'Black'}?`,
+          detail: 'Switching sides starts a new game and the current position will be lost.',
+          confirmLabel: 'Switch sides',
+          onConfirm: start,
+        });
+      } else {
+        start();
+      }
     },
     onDifficulty: (id) => {
       audio.unlock();
@@ -139,7 +192,7 @@ async function boot() {
     onRestart: () => {
       audio.unlock();
       audio.playUi();
-      controller.newGame();
+      requestNewGame();
     },
     onSoundToggle: (on) => {
       audio.unlock();
@@ -280,13 +333,13 @@ async function boot() {
   // -------------------------------------------------------------- shortcuts --
   window.addEventListener('keydown', (e) => {
     if (e.target && /input|textarea/i.test(e.target.tagName)) return;
-    // A promotion dialog is modal: its own key handler owns the keyboard, so the
-    // game shortcuts must not fire underneath it.
-    if (controller.phase === 'promoting') return;
+    // Modal surfaces own the keyboard: do not let game shortcuts fire beneath
+    // the promotion or confirmation dialog.
+    if (controller.phase === 'promoting' || hud.confirmOpen) return;
     switch (e.key.toLowerCase()) {
       case 'u': controller.undo(); break;
       case 'h': controller.hint(); break;
-      case 'n': controller.newGame(); break;
+      case 'n': requestNewGame(); break;
       case 'f':
         // Flip the camera only. This used to change sides, which restarted the
         // game and lost the position the player was looking at.

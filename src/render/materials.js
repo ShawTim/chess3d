@@ -136,7 +136,7 @@ export class MaterialLibrary {
       sheen: 0.28,
       sheenRoughness: 0.5,
       sheenColor: new THREE.Color(0x6b5a44),
-      envMapIntensity: 0.82,
+      envMapIntensity: 0.76,
     }));
 
     this.blackPiece = this.keep(new THREE.MeshPhysicalMaterial({

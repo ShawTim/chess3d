@@ -156,7 +156,7 @@ function createStudioEnvironment() {
   // Rim: a narrow warm strip behind, which draws the black pieces' edges.
   panel(4.6, 1.5, [4.8, 3.1, 1.8], [-2.6, 4.2, -8.2]);
   // Broad top light so the board never falls into pure black.
-  panel(6.5, 6.5, [0.95, 1.00, 1.15], [0, 11.5, 0]);
+  panel(6.5, 6.5, [0.82, 0.88, 1.02], [0, 11.5, 0]);
   // Low warm bounce, as if the light were bouncing off a wooden table.
   panel(10.0, 3.0, [0.75, 0.58, 0.40], [0, -4.5, 6.0]);
 
@@ -265,7 +265,7 @@ export class SceneRig {
 
   setupLights() {
     // Key light: a warm, soft shadow caster high on White's side.
-    const key = new THREE.DirectionalLight(0xffefd6, 3.1);
+    const key = new THREE.DirectionalLight(0xffefd6, 2.75);
     key.position.set(5.5, 11, 6.5);
     key.castShadow = true;
     key.shadow.mapSize.set(2048, 2048);
@@ -288,12 +288,12 @@ export class SceneRig {
     this.scene.add(fill, fill.target);
 
     // Rim light from behind to separate the black pieces from the background.
-    const rim = new THREE.DirectionalLight(0xffd9a8, 1.5);
+    const rim = new THREE.DirectionalLight(0xffd9a8, 1.95);
     rim.position.set(-2.5, 4.5, -8.5);
     this.scene.add(rim, rim.target);
 
     // A very low ambient so nothing is ever fully unlit.
-    this.scene.add(new THREE.AmbientLight(0x3a4356, 0.26));
+    this.scene.add(new THREE.AmbientLight(0x3a4356, 0.20));
 
     // A practical behind the board, lighting the frame's back edge and the
     // table so the set does not look pasted onto a black void.

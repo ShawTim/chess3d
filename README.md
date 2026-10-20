@@ -35,6 +35,8 @@ Any static host works. To deploy, publish the repository root as-is (see
   is still running), a Hint button that asks the worker for a strong move, and a
   move list in standard algebraic notation with captured-piece trays. Clicking a
   move shows the board as it stood after that move, with a visible way back.
+- Starting a new game, or switching sides, asks for confirmation while a live
+  position is on the board.
 - Promotion, hint and undo are all reachable from the keyboard, and the promotion
   dialog is a real modal with focus handling.
 
@@ -45,12 +47,15 @@ Any static host works. To deploy, publish the repository root as-is (see
 - Procedural wood and marble textures with derived roughness and normal maps.
   Each board square samples a different part of the tiling grain (and half are
   rotated a quarter turn), so the 32 light squares are no longer identical.
+  A hairline seam over a dark substrate separates the squares, so the top reads
+  as veneer rather than a printed surface.
 - A hand-built studio environment: a dark room with a warm key softbox, a cool
   fill panel, a narrow rim strip and a low bounce, captured to a PMREM. This is
   what gives marble a long highlight down one flank instead of chalky white.
 - A gradient backdrop sphere, atmospheric dust in the key light, soft contact
   shadows under every piece, and a beveled frame with a brass inlay line and a
   felt pad.
+  A soft warm pool of practical light on the table grounds the set.
 - Physically based materials with clearcoat, sheen and anisotropic brushed metal,
   soft shadows, ACES tone mapping, bloom on the glints, a vignette, SMAA, and a
   final grade pass with film grain and a touch of lens aberration.

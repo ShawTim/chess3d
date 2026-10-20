@@ -65,7 +65,11 @@ export function isDarkSquare(sq) {
  * raycaster has a clean, coplanar surface to hit.
  */
 function tileGeometry() {
-  const geo = new THREE.BoxGeometry(TILE, BOARD_THICKNESS * 0.55, TILE, 1, 1, 1);
+  // A hair of gap between squares. Real veneered boards are cut from separate
+  // pieces and show a dark seam; butting 1.0-wide boxes together produced a
+  // single printed-looking surface.
+  const size = TILE * 0.986;
+  const geo = new THREE.BoxGeometry(size, BOARD_THICKNESS * 0.55, size, 1, 1, 1);
   geo.translate(0, -BOARD_THICKNESS * 0.55 * 0.5, 0);
   return geo;
 }
@@ -210,6 +214,14 @@ export function createBoard(lib, handlers = {}) {
   group.add(inlayMeshes(lib));
 
   // ---------------------------------------------------------------- tiles --
+  // A dark substrate shows through the tile seams, so the squares read as inlaid
+  // pieces rather than one printed top.
+  const substrateGeo = new THREE.BoxGeometry(BOARD_HALF * 2 + 0.02, 0.02, BOARD_HALF * 2 + 0.02);
+  const substrate = new THREE.Mesh(substrateGeo, lib.frame);
+  substrate.position.y = -0.012;
+  substrate.receiveShadow = true;
+  group.add(substrate);
+
   const tiles = new THREE.Group();
   tiles.name = 'tiles';
   const tileGeos = [];
@@ -434,6 +446,7 @@ export function createBoard(lib, handlers = {}) {
     dispose() {
       frameGeo.dispose();
       feltGeo.dispose();
+      substrateGeo.dispose();
       for (const g of tileGeos) g.dispose();
       overlayGeo.dispose();
       hoverGeo.dispose();
