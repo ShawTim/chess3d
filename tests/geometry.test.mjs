@@ -351,5 +351,138 @@ for (const [type, name] of [[QUEEN, 'queen'], [KING, 'king']]) {
   expect(gap <= 0.32, `${name}: finial sits on the body`, `gap=${gap.toFixed(3)}`);
 }
 
+console.log('\n--- Cut edges stay sharp, curved surfaces stay smooth ---');
+/**
+ * Coincident vertices that disagree about their normal, i.e. arrises.
+ *
+ * A lathe shares one ring of vertices between the faces above and below each
+ * profile point, so the two sides average to a single normal and a cut bead
+ * shades as though it had been sanded over. `creaseProfile` splits that ring;
+ * this counts the splits, so the pass cannot be dropped silently (the count
+ * would fall to roughly zero and every bead would go soft again). The rook's
+ * body check afterwards proves the split is aimed at corners instead of being
+ * applied everywhere, which would make the pieces faceted.
+ */
+function hardEdgeStats(geo, yRange = null) {
+  const pos = geo.attributes.position;
+  const nrm = geo.attributes.normal;
+  const idx = geo.index;
+  const triCount = idx ? idx.count / 3 : pos.count / 3;
+  const gi = (t, k) => (idx ? idx.getX(t * 3 + k) : t * 3 + k);
+  const at = new Map();
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+  const e1 = new THREE.Vector3(), e2 = new THREE.Vector3();
+  for (let t = 0; t < triCount; t++) {
+    const ids = [gi(t, 0), gi(t, 1), gi(t, 2)];
+    a.fromBufferAttribute(pos, ids[0]);
+    b.fromBufferAttribute(pos, ids[1]);
+    c.fromBufferAttribute(pos, ids[2]);
+    e1.copy(b).sub(a);
+    e2.copy(c).sub(a);
+    // Degenerate triangles are what a repeated profile point creates; they carry
+    // no normal of their own, which is exactly why the split works.
+    if (e1.clone().cross(e2).lengthSq() < 1e-20) continue;
+    for (const i of ids) {
+      const y = pos.getY(i);
+      if (yRange && (y < yRange[0] || y > yRange[1])) continue;
+      const key = [pos.getX(i), y, pos.getZ(i)].map((v) => Math.round(v * 1e4)).join(',');
+      const rec = at.get(key) ?? { normals: [] };
+      rec.normals.push(new THREE.Vector3().fromBufferAttribute(nrm, i).normalize());
+      at.set(key, rec);
+    }
+  }
+  let hard = 0, maxAngle = 0, unit = 0, counted = 0;
+  for (const { normals } of at.values()) {
+    counted += normals.length;
+    let sharpest = 0;
+    for (let i = 0; i < normals.length; i++) {
+      if (Math.abs(normals[i].length() - 1) < 1e-3) unit++;
+      for (let j = i + 1; j < normals.length; j++) {
+        const angle = Math.acos(Math.min(1, Math.max(-1, normals[i].dot(normals[j])))) * 180 / Math.PI;
+        if (angle > sharpest) sharpest = angle;
+      }
+    }
+    if (sharpest > 20) { hard++; maxAngle = Math.max(maxAngle, sharpest); }
+  }
+  return { hard, maxAngle, unitPct: counted ? (100 * unit) / counted : 0 };
+}
+for (const [type, name] of Object.entries({ [PAWN]:'pawn', [KNIGHT]:'knight', [BISHOP]:'bishop', [ROOK]:'rook', [QUEEN]:'queen', [KING]:'king' })) {
+  const { shell } = getPieceGeometry(Number(type));
+  const s = hardEdgeStats(shell);
+  expect(s.hard >= 128,
+    `${name}: beads and collars keep a cut edge`,
+    `${s.hard} arris positions (want >= 128, i.e. two creased rings)`);
+  expect(s.maxAngle >= 45,
+    `${name}: the cut edge is a real arris, not noise`,
+    `sharpest ${s.maxAngle.toFixed(1)} deg (want >= 45)`);
+  expect(s.unitPct > 99.5,
+    `${name}: every normal is unit length`,
+    `${s.unitPct.toFixed(2)}%`);
+}
+{
+  // The rook's tower is a straight run of profile between 0.30 and 0.45: no
+  // corners, so nothing there should read as an arris. Without this, creasing
+  // every ring would still satisfy the counts above while faceting the pieces.
+  const { shell } = getPieceGeometry(ROOK);
+  const body = hardEdgeStats(shell, [0.30, 0.45]);
+  expect(body.hard === 0,
+    'rook: the straight body is smooth (creases are only at corners)',
+    `${body.hard} arris positions, sharpest ${body.maxAngle.toFixed(1)} deg`);
+}
+
+console.log('\n--- The hand-worked warp stays subtle and sits flat ---');
+{
+  // Rings are found by height, then trimmed to their wall: a flat cap puts every
+  // radius from 0 out to the rim at one height, and comparing those measures the
+  // disc rather than the ovality. Keeping only vertices within 5% of the ring's
+  // median radius isolates the turned wall.
+  const { shell } = getPieceGeometry(PAWN);
+  const pos = shell.attributes.position;
+  const rings = new Map();
+  for (let i = 0; i < pos.count; i++) {
+    const key = pos.getY(i).toFixed(4);
+    const list = rings.get(key) ?? [];
+    list.push(Math.hypot(pos.getX(i), pos.getZ(i)));
+    rings.set(key, list);
+  }
+  let worst = 1;
+  for (const [key, radii] of rings) {
+    if (Number(key) < 0.05) continue; // the underside is a disc, not a turned ring
+    if (radii.length < 32) continue;
+    const sorted = [...radii].sort((a, b) => a - b);
+    const median = sorted[sorted.length >> 1];
+    if (median < 1e-3) continue;
+    const wall = sorted.filter((r) => Math.abs(r - median) / median < 0.05);
+    if (wall.length < 32) continue;
+    worst = Math.max(worst, wall[wall.length - 1] / wall[0]);
+  }
+  expect(worst > 1.002,
+    'pawn: the section is not a perfect surface of revolution',
+    `max ring ratio=${worst.toFixed(5)} (want > 1.002)`);
+  expect(worst < 1.03,
+    'pawn: the warp is a few tenths of a percent, not a dent',
+    `max ring ratio=${worst.toFixed(5)} (want < 1.03)`);
+}
+
+console.log('\n--- A piece is shaped the same however the set is built ---');
+{
+  // Two module instances stand in for two sessions: geometry is cached per
+  // instance, so this is "queen built first" against "queen built fifth". The
+  // warp used to be phased by a running counter, which made the same queen
+  // differ by 0.5% of its radius depending on when it was first needed.
+  const first = await import('../src/render/pieces.js?order=queen-first');
+  const last = await import('../src/render/pieces.js?order=queen-last');
+  const queenFirst = first.getPieceGeometry(QUEEN).shell.attributes.position.array.slice();
+  for (const t of [PAWN, KNIGHT, BISHOP, ROOK]) last.getPieceGeometry(t);
+  const queenLast = last.getPieceGeometry(QUEEN).shell.attributes.position.array.slice();
+  let worst = 0;
+  for (let i = 0; i < Math.min(queenFirst.length, queenLast.length); i++) {
+    worst = Math.max(worst, Math.abs(queenFirst[i] - queenLast[i]));
+  }
+  expect(queenFirst.length === queenLast.length && worst < 1e-12,
+    'queen: identical whether built first or fifth',
+    `max vertex delta=${worst.toExponential(2)}`);
+}
+
 console.log(`\n${failures === 0 ? 'ALL PASS' : 'FAILURES: ' + failures} (${checks} checks)`);
 process.exit(failures === 0 ? 0 : 1);

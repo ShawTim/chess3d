@@ -83,8 +83,26 @@ function creaseProfile(profile, minAngle = CREASE_ANGLE) {
  * so the piece still sits flat, and applied before normals are computed so the
  * shading follows the finished surface rather than a idealised one.
  */
-let latheCount = 0;
-function handFinish(geo, amount) {
+/**
+ * Phase of the hand-worked warp, taken from the profile itself.
+ *
+ * A running counter would be simpler, but the shape would then depend on which
+ * piece happened to be built first: the same queen came out visibly different
+ * (0.5% of radius) when it was the session's first lathe instead of its fifth,
+ * and a piece promoted mid-game would differ from one set up at the start.
+ * Hashing the profile keeps every piece identical across sessions and build
+ * orders while still giving each lathe its own phase.
+ */
+function profilePhase(profile) {
+  let h = 0x811c9dc5;
+  for (const [r, y] of profile) {
+    h = Math.imul(h ^ Math.round(r * 1e4), 0x01000193);
+    h = Math.imul(h ^ Math.round(y * 1e4), 0x01000193);
+  }
+  return ((h >>> 0) / 4294967296) * TWO_PI;
+}
+
+function handFinish(geo, amount, phase) {
   const pos = geo.attributes.position;
   let minY = Infinity, maxY = -Infinity;
   for (let i = 0; i < pos.count; i++) {
@@ -93,7 +111,6 @@ function handFinish(geo, amount) {
     if (y > maxY) maxY = y;
   }
   const h = Math.max(1e-6, maxY - minY);
-  const phase = (latheCount++ * 1.913) % TWO_PI;
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), z = pos.getZ(i);
     const r = Math.hypot(x, z);
@@ -121,7 +138,7 @@ function lathe(profile, segments = RADIAL_SEGMENTS, { hand = 0.006 } = {}) {
   const points = creaseProfile(profile)
     .map(([r, y]) => new THREE.Vector2(Math.max(r, 1e-4), y));
   const geo = new THREE.LatheGeometry(points, segments);
-  if (hand > 0) handFinish(geo, hand);
+  if (hand > 0) handFinish(geo, hand, profilePhase(profile));
   geo.computeVertexNormals();
   return geo;
 }
