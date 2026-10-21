@@ -61,6 +61,12 @@ expect(og('og:url') === ORIGIN, 'og:url matches the canonical', `${og('og:url')}
 expect(`${og('og:image:width')}x${og('og:image:height')}` === '1200x630',
   'og:image declares 1200x630',
   `${og('og:image:width')}x${og('og:image:height')}`);
+// The version query is what makes a regenerated card appear without anyone
+// re-scraping it by hand, so the card URL and the secure URL must agree on it.
+const ogImage = og('og:image') ?? '';
+expect(ogImage === (og('og:image:secure_url') ?? ''),
+  'og:image and og:image:secure_url are the same URL',
+  `${ogImage} vs ${og('og:image:secure_url')}`);
 
 console.log('\n--- Twitter / X ---');
 expect(tw('twitter:card') === 'summary_large_image',
@@ -68,6 +74,9 @@ expect(tw('twitter:card') === 'summary_large_image',
 expect(!!tw('twitter:title') && !!tw('twitter:description'), 'title and description present');
 expect(/^https?:\/\//.test(tw('twitter:image') ?? ''),
   'twitter:image is ABSOLUTE', tw('twitter:image'));
+expect((tw('twitter:image') ?? '') === ogImage,
+  'twitter:image is the same card URL as og:image',
+  `${tw('twitter:image')} vs ${ogImage}`);
 
 console.log('\n--- Referenced local assets exist on disk ---');
 const refs = new Set();
@@ -78,8 +87,10 @@ for (const r of [...refs].sort()) {
   checks++;
   console.log(`${exists ? 'ok  ' : 'FAIL'} ${r}${exists ? '' : '  <- MISSING'}`);
 }
-// The og image is referenced by absolute URL, so check its path separately.
-const ogPath = (og('og:image') ?? '').replace(ORIGIN, '');
+// The og image is referenced by absolute URL, so check its path separately. The
+// ?v= query is a cache buster for the social platforms, not part of the file
+// name, so it is stripped before asking the filesystem.
+const ogPath = (og('og:image') ?? '').replace(ORIGIN, '').replace(/\?.*$/, '');
 const ogExists = !!ogPath && fs.existsSync(ogPath);
 if (!ogExists) failures++;
 checks++;

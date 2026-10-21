@@ -14,6 +14,12 @@
   2. The URLs must match where the site actually serves. This project is hosted
      under a /chess3d/ subpath on a custom domain, so every canonical and og:url
      below includes it.
+  3. The image URLs carry a ?v= version. Social platforms cache a preview
+     against the exact URL, and Facebook only re-fetches on an authenticated
+     visit to its debugger (the Graph scrape endpoint needs an access token),
+     while Twitter's validator now sits behind a login. Bumping the version is
+     what makes a regenerated card appear without anyone signing in anywhere —
+     so bump it whenever docs/og-image.png changes.
 -->
 <title>Chess3D — 3D Chess Against an Offline AI</title>
 <meta name="description" content="A cinematic 3D chess game built with Three.js. Play six difficulty tiers against an engine that runs entirely in your browser — no server, no API, no network, and no build step." />
@@ -34,8 +40,8 @@
 <meta property="og:url" content="https://shawt.im/chess3d/" />
 <meta property="og:title" content="Chess3D — 3D Chess Against an Offline AI" />
 <meta property="og:description" content="A cinematic 3D chess game built with Three.js. Six difficulty tiers, rendered in real time, powered by an engine that runs entirely in your browser. No server, no API, no network." />
-<meta property="og:image" content="https://shawt.im/chess3d/docs/og-image.png" />
-<meta property="og:image:secure_url" content="https://shawt.im/chess3d/docs/og-image.png" />
+<meta property="og:image" content="https://shawt.im/chess3d/docs/og-image.png?v=2" />
+<meta property="og:image:secure_url" content="https://shawt.im/chess3d/docs/og-image.png?v=2" />
 <meta property="og:image:type" content="image/png" />
 <meta property="og:image:width" content="1200" />
 <meta property="og:image:height" content="630" />
@@ -46,7 +52,7 @@
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="Chess3D — 3D Chess Against an Offline AI" />
 <meta name="twitter:description" content="A cinematic 3D chess game built with Three.js. Six difficulty tiers against an engine that runs entirely in your browser. No server, no API, no network." />
-<meta name="twitter:image" content="https://shawt.im/chess3d/docs/og-image.png" />
+<meta name="twitter:image" content="https://shawt.im/chess3d/docs/og-image.png?v=2" />
 <meta name="twitter:image:alt" content="A 3D chess board with sculpted marble pieces under warm studio lighting." />
 
 <!-- Icons -->

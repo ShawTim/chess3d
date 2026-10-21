@@ -395,15 +395,18 @@ and add a `CNAME` file containing the domain.
 ### Social previews
 
 `docs/og-image.png` (1200x630) is referenced by absolute URL, and `og:image`
-points at it. After changing it, re-scrape the URL with the
-[Facebook Sharing Debugger](https://developers.facebook.com/tools/debug/) or the
-[Twitter Card Validator](https://cards-dev.twitter.com/validator) to clear the
-cached preview. `npm test` includes `tests/seo.test.mjs`, which fails if the
-image goes missing or the URLs drift from the deployed origin.
+points at it. Platforms cache a preview against the exact URL, so the card URLs
+in `index.html` carry a `?v=` version: bumping it is what makes a regenerated
+card appear without signing in anywhere. That matters because neither platform
+can be scripted — the Facebook Graph scrape endpoint replies `(#100) Must have a
+valid access token`, and `cards-dev.twitter.com/validator` now redirects to a
+login. `npm test` includes `tests/seo.test.mjs`, which fails if the image goes
+missing, if the URLs drift from the deployed origin, or if `og:image`,
+`og:image:secure_url` and `twitter:image` stop pointing at the same card.
 
 ### Regenerating the images
 
-Two steps: capture the app, then compose the card.
+Capture the app, compose the card, then bump the version.
 
 ```bash
 # 1. capture the live app (needs a headless Chrome exposing CDP)
@@ -422,8 +425,10 @@ python3 tools/make-social-images.py
 canvas is the requested size, and waits for the camera to stop moving before it
 captures. It refuses to write a frame from a page that never rendered, and it
 exits non-zero if the console logged an error or a warning — a screenshot of a
-broken page still looks plausible. The card is composed from that capture, so
-both assets are rebuilt rather than hand-edited.
+broken page still looks plausible.
+
+Finally bump the version on the three card URLs in `index.html` (`?v=2` today),
+so the platforms fetch the new card rather than the one they cached.
 
 ## Browser support
 
