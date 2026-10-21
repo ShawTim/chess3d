@@ -259,7 +259,12 @@ Eight suites run in plain Node:
   every test position, and must beat a random mover from the stronger tiers.
 - `tests/geometry.test.mjs` — the generated pieces must be closed solids wound
   outward, reach their declared heights, overlap their pedestals, taper in three
-  dimensions, and shade smoothly rather than faceted. These assertions caught
+  dimensions, and shade smoothly rather than faceted. Once the profiles became
+  cut work it also pins the surface finish: every piece must keep at least 128
+  coincident-but-disagreeing vertices (the arrises), the sharpest must exceed 45
+  degrees, the rook's straight body must report none of them, the hand-worked
+  warp must stay between 0.2% and 3% of the radius, and a piece must come out
+  identical whether it is the first or the fifth built. These assertions caught
   three real bugs after visual review had already passed the same builds: an
   inward-wound knight head that back-face culling hid entirely, a non-indexed
   merge that flattened its shading, and ears seated inside the skull.
@@ -398,12 +403,27 @@ image goes missing or the URLs drift from the deployed origin.
 
 ### Regenerating the images
 
+Two steps: capture the app, then compose the card.
+
 ```bash
-python3 tools/make-social-images.py   # needs Pillow and docs/hero-render.png
+# 1. capture the live app (needs a headless Chrome exposing CDP)
+npm run serve
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+  --headless=new --remote-debugging-port=9222 \
+  --user-data-dir=/tmp/chess3d-cdp --window-size=1280,720 about:blank &
+node tools/shot.mjs --out docs/screenshot.png
+
+# 2. compose the social card from that capture (needs Pillow)
+cp docs/screenshot.png /tmp/hero-render.png
+python3 tools/make-social-images.py
 ```
 
-The script composes the card from a captured 3D render, so it can be rebuilt at
-any time rather than being a hand-edited binary.
+`tools/shot.mjs` waits for the controller to reach a playable phase, checks the
+canvas is the requested size, and waits for the camera to stop moving before it
+captures. It refuses to write a frame from a page that never rendered, and it
+exits non-zero if the console logged an error or a warning — a screenshot of a
+broken page still looks plausible. The card is composed from that capture, so
+both assets are rebuilt rather than hand-edited.
 
 ## Browser support
 
