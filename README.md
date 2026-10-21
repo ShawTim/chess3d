@@ -427,8 +427,11 @@ captures. It refuses to write a frame from a page that never rendered, and it
 exits non-zero if the console logged an error or a warning — a screenshot of a
 broken page still looks plausible.
 
-Finally bump the version on the three card URLs in `index.html` (`?v=2` today),
-so the platforms fetch the new card rather than the one they cached.
+Finally bump the version on the three card URLs in `index.html` (`?v=3` today),
+so the platforms fetch the new card. Bump it in the same commit as the new
+image and do not request the new URL before that commit is deployed: the CDN
+caches the bytes it finds under the new key, and a check run early leaves the
+old card sitting there until the TTL expires.
 
 ## Browser support
 
