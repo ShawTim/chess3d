@@ -6,7 +6,7 @@
  * on tricky positions proves castling, en passant, promotion, pin handling and
  * check detection are all implemented correctly.
  */
-import { Chess, moveToUci, squareFromName } from '../src/engine/chess.js';
+import { Chess, KING, PAWN, moveToUci, squareFromName } from '../src/engine/chess.js';
 
 let failures = 0;
 let checks = 0;
@@ -214,6 +214,64 @@ console.log('\n--- Rules behaviour ---');
   const g1 = new Chess(KIWIPETE);
   const g2 = new Chess(KIWIPETE);
   expectEqual(g1.perft(4), g2.perft(4), 'perft reproducible');
+}
+
+
+console.log('\n--- Random play: the board must stay a legal chess position ---');
+{
+  // Perft proves the move generator counts right on known positions. This walks a
+  // long random game and checks the invariants a corrupted board would break, so
+  // make/undo, castling rights, en passant and promotion are exercised together.
+  const g = new Chess();
+  let ok = true;
+  let plies = 0;
+
+  for (let i = 0; i < 160; i++) {
+    const moves = g.legalMoves();
+    if (!moves.length) break;
+    const move = moves[(i * 13 + 5) % moves.length];
+    const before = g.fen();
+    const beforeHash = g.hash;
+
+    g.makeMove(move);
+
+    let kings = [0, 0];
+    let pawnsOnBackRank = 0;
+    for (let sq = 0; sq < 64; sq++) {
+      const piece = g.board[sq];
+      if (!piece) continue;
+      const type = piece & 7;
+      if (type === KING) kings[piece >> 3]++;
+      if (type === PAWN && ((sq >> 3) === 0 || (sq >> 3) === 7)) pawnsOnBackRank++;
+    }
+    if (kings[0] !== 1 || kings[1] !== 1) {
+      ok = false;
+      console.log(`     king count broke after ${moveToUci(move)}: ${kings}`);
+      break;
+    }
+    if (pawnsOnBackRank !== 0) {
+      ok = false;
+      console.log(`     a pawn stayed on the back rank after ${moveToUci(move)}`);
+      break;
+    }
+    // The side that just moved may never be left in check.
+    if (g.inCheck(g.turn ^ 1)) {
+      ok = false;
+      console.log(`     ${moveToUci(move)} left its own king in check`);
+      break;
+    }
+
+    g.undoMove();
+    if (g.fen() !== before || g.hash !== beforeHash) {
+      ok = false;
+      console.log(`     undo after ${moveToUci(move)} did not restore the position`);
+      break;
+    }
+    g.makeMove(move);
+    plies++;
+  }
+
+  expectEqual(ok, true, `legal position maintained across ${plies} random plies`);
 }
 
 console.log(`\n${failures === 0 ? 'ALL PASS' : 'FAILURES: ' + failures} (${checks} checks)`);

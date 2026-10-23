@@ -12,6 +12,7 @@ import { CameraRig } from './render/camera.js';
 import { MaterialLibrary } from './render/materials.js';
 import { createBoard } from './render/board.js';
 import { PieceViews } from './render/pieceViews.js';
+import { TapGesture } from './game/tap.js';
 import { Hud } from './ui/hud.js';
 import { AudioEngine } from './audio/sfx.js';
 import { GameController } from './game/controller.js';
@@ -245,7 +246,6 @@ async function boot() {
   const boardPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   const hitPoint = new THREE.Vector3();
 
-  let pointerDown = null;
   let hoverSquare = null;
 
   // Touch needs a more forgiving definition of "a tap" than a mouse does. The
@@ -254,29 +254,23 @@ async function boot() {
   // to tap straight down. Measured on a phone, a square is only about 30-45 CSS
   // px across, so a 6px slop is a substantial fraction of the target.
   const isCoarsePointer = () => window.matchMedia?.('(pointer: coarse)').matches ?? false;
-  const TAP_SLOP_PX = () => (isCoarsePointer() ? 14 : 6);
-  const TAP_TIME_MS = () => (isCoarsePointer() ? 900 : 700);
+  const tap = new TapGesture({ slopPx: () => (isCoarsePointer() ? 14 : 6) });
 
   canvas.addEventListener('pointerdown', (e) => {
-    // A second finger means a pinch (zoom), not a tap: abandon the pending tap so
-    // the gesture does not also register as a board click on release.
-    if (pointerDown) { pointerDown = null; return; }
-    pointerDown = { x: e.clientX, y: e.clientY, time: performance.now(), id: e.pointerId };
     audio.unlock();
+    // A second finger means a pinch (zoom), not a tap; TapGesture drops the
+    // candidate in that case. A fresh primary press always starts a new gesture,
+    // so a missed pointerup can no longer swallow the next click.
+    tap.start(e.pointerId, e.clientX, e.clientY, e.isPrimary);
   });
 
-  canvas.addEventListener('pointercancel', () => { pointerDown = null; });
+  canvas.addEventListener('pointermove', (e) => tap.move(e.pointerId, e.clientX, e.clientY));
+  canvas.addEventListener('pointercancel', () => tap.cancel());
 
   canvas.addEventListener('pointerup', (e) => {
-    if (!pointerDown || e.pointerId !== pointerDown.id) return;
-    const moved = Math.hypot(e.clientX - pointerDown.x, e.clientY - pointerDown.y);
-    const elapsed = performance.now() - pointerDown.time;
-    pointerDown = null;
-
-    // Only treat it as a tap if the finger barely moved. Camera orbiting also
-    // begins with a pointerdown here, so a drag must not select a square.
-    if (moved > TAP_SLOP_PX() || elapsed > TAP_TIME_MS()) return;
-
+    // Holding a piece while deciding is still a tap. Only a gesture that
+    // travelled further than the slop radius counts as a camera drag.
+    if (!tap.end(e.pointerId)) return;
     const square = pickSquare(e);
     if (square !== null) controller.onSquareClick(square);
   });

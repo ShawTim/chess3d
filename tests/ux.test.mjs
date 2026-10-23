@@ -25,7 +25,7 @@ import * as THREE from 'three';
 import { GameController, Phase } from '../src/game/controller.js';
 import { flipAround } from '../src/render/camera.js';
 import {
-  PAWN, KNIGHT, WHITE, makePiece, moveTo, moveFrom,
+  Chess, PAWN, KNIGHT, WHITE, makePiece, moveFrom, movePromo, moveTo, moveToUci,
 } from '../src/engine/chess.js';
 
 let failures = 0;
@@ -268,6 +268,56 @@ console.log('\n--- Clicking a move reviews that position, and returns ---');
   expect(controller.reviewPly === null, 'returnToLive clears the review state');
   expect(hud.calls.reviewing.at(-1)?.[0] === null, 'the banner is dismissed');
   expect(controller.game.fen() === game.fen(), 'the live position is restored');
+}
+
+
+/* ------------------------------------------------- every legal move plays -- */
+
+console.log('\n--- Every legal move can be played by clicking it ---');
+{
+  // The reported symptom was a white pawn on f7 that would not capture the
+  // knight on g8. The rules generated the move, so this drives every legal move
+  // in awkward positions through the same two clicks a player makes, and checks
+  // the move that lands is the one that was clicked.
+  const cases = [
+    ['5bk1/5P2/8/8/8/8/8/6K1 w - - 0 1', 'promotion capture on g8 (the reported position)'],
+    ['r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1', 'castling both ways'],
+    ['rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', 'the opening position'],
+    ['7k/8/8/8/8/8/p7/7K b - - 0 1', 'black promotion'],
+  ];
+
+  for (const [fen, label] of cases) {
+    const probe = new Chess(fen);
+    const legal = probe.legalMoves();
+    let played = 0;
+    const missed = [];
+
+    for (const move of legal) {
+      const { controller, hud } = makeController();
+      controller.game.load(fen);
+      controller.history = [controller.game.positionKey()];
+      controller.moveList = [];
+      controller.playerColor = controller.game.turn;
+      controller.phase = Phase.PLAYER_TURN;
+      // A worker that never answers keeps the AI reply out of this assertion.
+      controller.worker = { postMessage() {} };
+      controller.workerReady = true;
+
+      controller.onSquareClick(moveFrom(move));
+      controller.onSquareClick(moveTo(move));
+      const prompt = hud.calls.promotion.at(-1);
+      if (controller.phase === Phase.PROMOTING && prompt) {
+        await prompt.onPick(movePromo(move));
+      }
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      if (controller.moveList[0]?.uci === moveToUci(move)) played++;
+      else missed.push(`${moveToUci(move)}->${controller.moveList[0]?.uci ?? 'nothing'}`);
+    }
+
+    expect(played === legal.length, `${label}: ${played}/${legal.length} legal moves play`,
+      missed.slice(0, 4).join(' '));
+  }
 }
 
 console.log(`\n${failures === 0 ? 'ALL PASS' : 'FAILURES: ' + failures} (${checks} checks)`);

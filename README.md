@@ -260,7 +260,10 @@ Eight suites run in plain Node:
 - `tests/perft.test.mjs` — perft node counts against the published values for
   six standard positions (including Kiwipete and the en-passant/promotion stress
   positions) to depth 4-5, plus targeted rule tests for en passant, castling,
-  pins, promotion, hash correctness and game-end detection.
+  pins, promotion, hash correctness and game-end detection. A 160-ply random
+  game also checks that make/undo restores the position exactly and that the
+  board stays legal (one king a side, no pawn on a back rank, no side left in
+  check by its own move).
 - `tests/ai.test.mjs` — the engine must find forced mates and knight forks, must
   not hang material, must respect its time budget, must return legal moves in
   every test position, and must beat a random mover from the stronger tiers.
@@ -286,7 +289,13 @@ Eight suites run in plain Node:
   applies the one chosen (not always a queen), flipping the camera leaves the FEN
   and move list untouched, undo cancels a pending engine search and its late
   reply cannot be played, and clicking a move enters and leaves review without
-  changing the live game.
+  changing the live game. It also drives every legal move in a position through
+  the two clicks a player makes — promotion captures, castling and the opening —
+  and fails if any of them produces no move or the wrong one.
+- `tests/input.test.mjs` — what counts as a tap: a press held while the player
+  decides is still a tap, a drag (including a circular one that ends where it
+  began) is not, a second finger cancels, and a missed `pointerup` cannot swallow
+  the next click.
 - `tests/mobile.test.mjs` — the pointer-events specificity trap: every rule that
   re-enables input under `#ui` must outrank the blanket `#ui > *` click-through
   rule, and a closed sheet must stay off-screen.
