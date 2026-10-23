@@ -13,12 +13,13 @@ import { MaterialLibrary } from './render/materials.js';
 import { createBoard } from './render/board.js';
 import { PieceViews } from './render/pieceViews.js';
 import { usableStorage } from './game/autosave.js';
+import { buildShareUrl, resultTag, toPgn } from './game/share.js';
 import { TapGesture } from './game/tap.js';
 import { Hud } from './ui/hud.js';
 import { AudioEngine } from './audio/sfx.js';
 import { GameController } from './game/controller.js';
 import { WHITE } from './engine/chess.js';
-import { DIFFICULTIES } from './engine/ai.js';
+import { DIFFICULTIES, getDifficulty } from './engine/ai.js';
 import { createPuffTexture } from './render/textures.js';
 
 const loader = document.getElementById('loader');
@@ -44,6 +45,38 @@ function setLoading(text) {
     requestAnimationFrame(finish);
     setTimeout(finish, 32);
   });
+}
+
+/**
+ * Copy text to the clipboard, returning whether it worked.
+ *
+ * `navigator.clipboard` needs a secure context and a document that still holds
+ * focus, and it can be refused by permission — the selection-based path below is
+ * deprecated but still works everywhere, so sharing degrades instead of failing.
+ */
+async function copyText(text) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch { /* fall through to the selection-based path */ }
+
+  try {
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.setAttribute('readonly', '');
+    area.style.position = 'fixed';
+    area.style.top = '-1000px';
+    area.style.opacity = '0';
+    document.body.appendChild(area);
+    area.select();
+    const copied = document.execCommand('copy');
+    area.remove();
+    return copied;
+  } catch {
+    return false;
+  }
 }
 
 async function boot() {
@@ -209,6 +242,34 @@ async function boot() {
       persist();
     },
     onQualityToggle: (on) => { rig.setCinematic(on); persist(); },
+    // Sharing needs no server: the whole game fits in the URL fragment, and the
+    // address bar is already kept up to date, so a link is just the current URL.
+    onShareLink: async () => {
+      audio.unlock();
+      audio.playUi();
+      const url = buildShareUrl(window.location.href, controller.moveList.map((m) => m.uci));
+      const copied = await copyText(url);
+      // A refused clipboard must not swallow the link: show it so it can still be
+      // selected and copied by hand.
+      hud.showToast(copied ? 'Link copied' : url, copied ? 1800 : 6000);
+    },
+    onSharePgn: async () => {
+      audio.unlock();
+      audio.playUi();
+      const status = controller.game.status(controller.history);
+      const engine = `Chess3D (${getDifficulty(controller.difficulty).name})`;
+      const pgn = toPgn(controller.moveList, {
+        white: controller.playerColor === WHITE ? 'You' : engine,
+        black: controller.playerColor === WHITE ? engine : 'You',
+        result: resultTag(status),
+        // PGN wants the page the game was played on, not the share fragment.
+        site: window.location.protocol.startsWith('http')
+          ? window.location.origin + window.location.pathname
+          : '',
+      });
+      const copied = await copyText(pgn);
+      hud.showToast(copied ? 'PGN copied' : 'Copy failed', copied ? 1800 : 3000);
+    },
     onMoveClick: (index) => controller.preview(index),
     onExitReview: () => controller.returnToLive(),
     // Opening the mobile sheet disables camera input: the sheet is a modal
@@ -236,6 +297,17 @@ async function boot() {
   controller = new GameController({
     rig, cameraRig, pieceViews, board, hud, audio,
     storage: gameStorage(),
+    // The address bar carries the game. `replaceState`, not `pushState`: a game is
+    // one continuous state, not a series of pages the back button should walk
+    // through. A relative URL is enough, so the game survives being hosted under
+    // any path.
+    urlSync: {
+      read: () => window.location.hash,
+      write: (hash) => {
+        const { pathname, search } = window.location;
+        window.history.replaceState(null, '', hash ? `${pathname}${search}#${hash}` : `${pathname}${search}`);
+      },
+    },
   });
   if (saved.difficulty && DIFFICULTIES[saved.difficulty]) controller.setDifficulty(saved.difficulty);
   controller.init();
@@ -359,6 +431,14 @@ async function boot() {
         break;
       default: break;
     }
+  });
+
+  // ------------------------------------------------------------------ link --
+  // Pasting or editing a share link changes only the fragment, which navigates
+  // without reloading: without this, the address bar would name one position
+  // while the board showed another.
+  window.addEventListener('hashchange', () => {
+    if (!controller.adoptUrlHash()) controller.writeUrl();
   });
 
   // ----------------------------------------------------------------- resize --

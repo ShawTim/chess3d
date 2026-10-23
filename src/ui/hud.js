@@ -32,6 +32,8 @@ export class Hud {
    * @param {(on: boolean) => void} callbacks.onSoundToggle
    * @param {(on: boolean) => void} callbacks.onQualityToggle
    * @param {() => void} callbacks.onRestart
+   * @param {() => void} callbacks.onShareLink
+   * @param {() => void} callbacks.onSharePgn
    */
   constructor(callbacks = {}) {
     this.cb = callbacks;
@@ -109,6 +111,19 @@ export class Hud {
     this.btnQuality = this.toggleButton('Cinematic', true, (on) => this.cb.onQualityToggle?.(on));
     options.append(this.btnSound, this.btnQuality);
     this.left.appendChild(options);
+
+    // Sharing lives in the panel, not the bottom toolbar: the toolbar is already
+    // at its width limit on a phone, and the phone sheet reuses this panel.
+    this.left.appendChild(this.sectionTitle('Share'));
+    const shareRow = el('div', 'options-row');
+    this.btnShareLink = this.actionButton('Copy link', () => this.cb.onShareLink?.());
+    this.btnShareLink.title = 'Copy a link that opens this exact position';
+    this.btnShareLink.setAttribute('aria-label', 'Copy a link to this position');
+    this.btnSharePgn = this.actionButton('Copy PGN', () => this.cb.onSharePgn?.());
+    this.btnSharePgn.title = 'Copy the game as PGN for another chess program';
+    this.btnSharePgn.setAttribute('aria-label', 'Copy the game as PGN');
+    shareRow.append(this.btnShareLink, this.btnSharePgn);
+    this.left.appendChild(shareRow);
 
     // The side panels are wrapped so a phone can present them as one slide-up
     // sheet the player opens on demand. On desktop the wrapper is

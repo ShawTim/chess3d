@@ -19,6 +19,7 @@ import {
 import { DIFFICULTIES, getDifficulty, DEFAULT_DIFFICULTY } from '../engine/ai.js';
 import { squareToWorld } from '../render/board.js';
 import { clearGame, loadGame, saveGame } from './autosave.js';
+import { hashFor, parseMoves } from './share.js';
 
 /** Player-facing game phases. */
 export const Phase = {
@@ -55,7 +56,7 @@ function describeMove(game, move, san) {
 }
 
 export class GameController {
-  constructor({ rig, cameraRig, pieceViews, board, hud, audio, storage = null }) {
+  constructor({ rig, cameraRig, pieceViews, board, hud, audio, storage = null, urlSync = null }) {
     this.rig = rig;
     this.cameraRig = cameraRig;
     this.pieceViews = pieceViews;
@@ -91,6 +92,8 @@ export class GameController {
 
     /** Where the auto-save lives, or null when storage is unavailable. */
     this.storage = storage;
+    /** URL fragment hooks, or null when the page has no history API. */
+    this.urlSync = urlSync;
     /** False until init() has settled, so boot cannot overwrite the save it reads. */
     this.ready = false;
   }
@@ -99,9 +102,11 @@ export class GameController {
 
   init() {
     this.spawnWorker();
-    if (this.restoreSavedGame()) {
+    // A link that names a game wins: the player followed it to see that game.
+    if (this.restoreSharedGame() || this.restoreSavedGame()) {
       this.ready = true;
       this.updateControls();
+      this.writeUrl();
       return;
     }
     this.pieceViews.rebuild(this.game);
@@ -114,45 +119,115 @@ export class GameController {
     this.phase = Phase.PLAYER_TURN;
     this.ready = true;
     this.updateControls();
+    // Boot is the one moment the URL can still be wrong; from here on it tracks
+    // the game. This also drops a link that turned out to be unusable.
+    this.writeUrl();
   }
 
   /**
-   * Bring back the game that was on the board when the page was closed.
+   * Replay a list of UCI moves from the starting position.
    *
-   * The moves are replayed through the rules engine rather than trusting a
-   * stored FEN: the engine is the only thing that can say whether a position is
-   * reachable, and a replay also rebuilds the repetition history and the
-   * per-move FENs the review needs. A move that no longer replays means the entry
-   * is stale (an older build, a hand-edited value), so it is dropped and the
-   * player gets a fresh board rather than a broken one.
+   * The rules engine is the only thing that can say whether a position is
+   * reachable, so the auto-save and a shared link both come through here: a move
+   * that no longer replays means the list is stale or edited, and the caller
+   * starts fresh instead of showing an illegal board. Replaying also rebuilds the
+   * repetition history and the per-move FENs the review panel needs.
    *
-   * @returns {boolean} True when a saved game was restored.
+   * @param {string[]} moves
+   * @returns {{game: Chess, history: string[], moveList: object[]}|null}
    */
-  restoreSavedGame() {
-    const saved = loadGame(this.storage);
-    if (!saved) return false;
-
+  replayMoves(moves) {
     const game = new Chess();
     const history = [game.positionKey()];
     const moveList = [];
-    for (const uci of saved.moves) {
+    for (const uci of moves) {
       const move = game.legalMoves().find((m) => moveToUci(m) === uci);
-      if (move === undefined) {
-        clearGame(this.storage);
-        return false;
-      }
+      if (move === undefined) return null;
       const entry = describeMove(game, move, game.moveToSan(move));
       game.makeMove(move);
       history.push(game.positionKey());
       entry.fen = game.fen();
       moveList.push(entry);
     }
+    return { game, history, moveList };
+  }
 
+  /**
+   * Open the game named in the URL fragment, if the link carries one.
+   *
+   * @returns {boolean}
+   */
+  restoreSharedGame() {
+    if (!this.urlSync) return false;
+    let hash = '';
+    try { hash = this.urlSync.read() ?? ''; } catch { return false; }
+
+    const moves = parseMoves(hash);
+    if (!moves) return false;
+
+    const replayed = this.replayMoves(moves);
+    // An unusable link is not worth an error: report it as "no shared game" and
+    // let init() repoint the URL once the real game is known.
+    if (!replayed) return false;
+    this.applyRestoredGame(replayed, {
+      playerColor: WHITE,
+      difficulty: this.difficulty,
+      announce: 'Opened a shared game',
+    });
+    return true;
+  }
+
+  /**
+   * Follow a link the player just pasted or edited.
+   *
+   * Changing only the fragment does not reload the page, so without this the
+   * board would sit there showing the previous game while the address bar claims
+   * another one. Returns false when the new fragment names no playable game, in
+   * which case the caller should repoint the bar at the board it is looking at.
+   *
+   * @returns {boolean}
+   */
+  adoptUrlHash() {
+    if (!this.ready) return false;
+    if (!this.restoreSharedGame()) return false;
+    this.updateControls();
+    return true;
+  }
+
+  /**
+   * Bring back the game that was on the board when the page was closed.
+   *
+   * @returns {boolean}
+   */
+  restoreSavedGame() {
+    const saved = loadGame(this.storage);
+    if (!saved) return false;
+
+    const replayed = this.replayMoves(saved.moves);
+    if (!replayed) {
+      clearGame(this.storage);
+      return false;
+    }
+    this.applyRestoredGame(replayed, {
+      playerColor: saved.playerColor,
+      difficulty: DIFFICULTIES[saved.difficulty] ? saved.difficulty : this.difficulty,
+      announce: replayed.moveList.length ? 'Resumed your last game' : null,
+    });
+    return true;
+  }
+
+  /**
+   * Install a replayed game into the controller and rebuild every view.
+   *
+   * @param {{game: Chess, history: string[], moveList: object[]}} replayed
+   * @param {{playerColor: number, difficulty: string, announce?: string|null}} options
+   */
+  applyRestoredGame({ game, history, moveList }, { playerColor, difficulty, announce = null }) {
     this.game = game;
     this.history = history;
     this.moveList = moveList;
-    this.playerColor = saved.playerColor;
-    if (DIFFICULTIES[saved.difficulty]) this.difficulty = saved.difficulty;
+    this.playerColor = playerColor;
+    if (DIFFICULTIES[difficulty]) this.difficulty = difficulty;
     const last = moveList[moveList.length - 1];
     this.lastMove = last ? { from: last.from, to: last.to } : null;
     this.hintMove = null;
@@ -187,10 +262,15 @@ export class GameController {
       this.requestAiMove();
     }
 
-    if (moveList.length) {
-      this.hud.showToast?.(status.over ? 'Restored your finished game' : 'Resumed your last game');
-    }
-    return true;
+    if (announce) this.hud.showToast?.(announce);
+  }
+
+  /**
+   * Persist the game and re-point the URL after any change to it.
+   */
+  commitState() {
+    this.saveState();
+    this.writeUrl();
   }
 
   /**
@@ -203,6 +283,23 @@ export class GameController {
       difficulty: this.difficulty,
       moves: this.moveList.map((m) => m.uci),
     });
+  }
+
+  /**
+   * Keep the address bar pointing at this game, so sharing is just copying it.
+   *
+   * `replaceState`, not `pushState`: a game is continuously updated, not a series
+   * of navigations the back button should walk through.
+   *
+   * Nothing is written until init() has settled, for the same reason saveState()
+   * waits: the boot code applies a difficulty before init(), and a game that has
+   * not been restored yet would look empty and wipe the very link being opened.
+   */
+  writeUrl() {
+    if (!this.urlSync || !this.ready) return;
+    try {
+      this.urlSync.write(hashFor(this.moveList.map((m) => m.uci)));
+    } catch { /* no history API: the game is still playable */ }
   }
 
   /**
@@ -460,7 +557,7 @@ export class GameController {
     this.hud.renderMoveList(this.moveList);
     this.updateCaptured();
     // Persist immediately: a reload during the animation must not lose the move.
-    this.saveState();
+    this.commitState();
 
     await animPromise;
 
@@ -610,7 +707,7 @@ export class GameController {
     this.hud.hideGameOver();
     this.hud.setEngineInfo(null);
     this.audio.playUi();
-    this.saveState();
+    this.commitState();
     this.updateControls();
   }
 
@@ -657,7 +754,7 @@ export class GameController {
       this.hud.setStatus('Thinking', this.difficultyLabel());
       this.requestAiMove();
     }
-    this.saveState();
+    this.commitState();
   }
 
   setPlayerColor(color) {
@@ -669,7 +766,7 @@ export class GameController {
     this.hud.setDifficulty(id);
     this.hud.setEngineInfo(null);
     if (this.phase === Phase.PLAYER_TURN) this.hud.setStatus('Your move', this.difficultyLabel());
-    this.saveState();
+    this.commitState();
   }
   /**
    * Suggest a move for the player.

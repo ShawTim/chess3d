@@ -39,6 +39,11 @@ Any static host works. To deploy, publish the repository root as-is (see
   position is on the board.
 - Promotion, hint and undo are all reachable from the keyboard, and the promotion
   dialog is a real modal with focus handling.
+- Share a game as a link. The whole game rides in the URL fragment
+  (`https://shawt.im/chess3d/#moves=e2e4,e7e5,g1f3`), which browsers never send
+  to the server, so a link needs no backend and no database: whoever opens it
+  watches the moves replay through the rules engine and gets the position. The
+  same game can be copied as PGN for any other chess program.
 
 **Presentation**
 - Procedurally generated Staunton pieces: the pawn, rook, bishop, queen and king
@@ -93,6 +98,9 @@ Any static host works. To deploy, publish the repository root as-is (see
 - Three.js is vendored into `vendor/three` and referenced through an import map.
 - The AI runs in a Web Worker so the render loop never stutters while it thinks.
 - No `fetch`, `XMLHttpRequest`, WebSocket or CDN reference exists in the source.
+- A shared link is a URL fragment, and fragments are never sent to the server. The
+  feature adds no request, no endpoint and no storage: the moves are replayed
+  locally, exactly like the auto-save.
 
 ## Controls
 
@@ -103,6 +111,7 @@ Any static host works. To deploy, publish the repository root as-is (see
 | Scroll or pinch | Zoom |
 | Click a move in the list (or focus it and press Enter) | Review the position after that move (click again, or press Esc, to return) |
 | Tap **Menu** (phone) | Open difficulty, side, move list and captured pieces |
+| **Copy link** / **Copy PGN** (left panel, or the phone sheet) | Copy a link that reopens this position, or the game as PGN |
 | `U` | Undo (also cancels an engine search in flight) |
 | `H` | Hint (computed in the worker, so the board keeps rendering) |
 | `N` | New game |
@@ -119,6 +128,15 @@ difficulty all come back. Only moves are stored — a stored board is never
 trusted — so an entry that no longer replays is discarded instead of reaching the
 screen. Everything else — the engine, the textures, the audio — is still
 generated in the browser with no network access.
+
+The address bar carries the game for the same reason: after every move it is
+rewritten (with `history.replaceState`, so the back button still leaves the app
+rather than walking through your own moves) to `#moves=e2e4,e7e5,…`. That makes
+**Copy link** a copy of the current URL rather than a separate code path, and it
+means a link you paste into a running game is followed — changing only the
+fragment does not reload the page, so the controller watches `hashchange`. A link
+that no longer replays is refused: the position on screen stays, and the bar is
+put back.
 
 ## Architecture
 
@@ -260,7 +278,7 @@ CPU was always the only thing it needed.
 npm test
 ```
 
-Eight suites run in plain Node:
+Eleven suites run in plain Node:
 
 - `tests/perft.test.mjs` — perft node counts against the published values for
   six standard positions (including Kiwipete and the en-passant/promotion stress
@@ -306,6 +324,12 @@ Eight suites run in plain Node:
   its position, move list, side, difficulty and whose turn it is, a finished game
   comes back finished, a move that no longer replays is discarded rather than
   shown, and undo and new game rewrite the save.
+- `tests/share.test.mjs` — the link and the PGN: a fragment round-trips, every
+  malformed or hostile one is rejected, an illegal move list is refused by the
+  replay rather than trusted, a link beats the auto-save, a pasted link is
+  followed while an unusable one leaves the game alone, the URL tracks moves,
+  undo and a new game, and the exported PGN keeps its headers, its result tag,
+  its escaping and its 80-column wrapping.
 - `tests/mobile.test.mjs` — the pointer-events specificity trap: every rule that
   re-enables input under `#ui` must outrank the blanket `#ui > *` click-through
   rule, and a closed sheet must stay off-screen.
