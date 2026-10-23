@@ -112,8 +112,13 @@ Any static host works. To deploy, publish the repository root as-is (see
 | `Esc` | Close the promotion dialog, leave review, close the phone sheet, or clear the selection |
 
 Difficulty, sound and the cinematic toggle are remembered in `localStorage`, so
-a reload keeps the session's preferences. Everything else — the engine, the
-textures, the audio — is still generated in the browser with no network access.
+a reload keeps the session's preferences. The game is auto-saved as well: the
+move list is written after every move, undo and new game, and a reload replays it
+through the rules engine. The position, the move list, the side you took and the
+difficulty all come back. Only moves are stored — a stored board is never
+trusted — so an entry that no longer replays is discarded instead of reaching the
+screen. Everything else — the engine, the textures, the audio — is still
+generated in the browser with no network access.
 
 ## Architecture
 
@@ -133,7 +138,7 @@ src/
     camera.js      Orbit controls and the framing solver
   ui/          DOM overlay (HUD, move list, captured trays, modals)
   audio/       Procedural WebAudio sound effects
-  game/        Game controller: the single owner of game state
+  game/        Game controller (single owner of state) and auto-save
   worker/      AI Web Worker
 ```
 
@@ -296,6 +301,11 @@ Eight suites run in plain Node:
   decides is still a tap, a drag (including a circular one that ends where it
   began) is not, a second finger cancels, and a missed `pointerup` cannot swallow
   the next click.
+- `tests/autosave.test.mjs` — a game survives a reload: the entry round-trips,
+  wrong versions and corrupt JSON are ignored, a game in progress comes back with
+  its position, move list, side, difficulty and whose turn it is, a finished game
+  comes back finished, a move that no longer replays is discarded rather than
+  shown, and undo and new game rewrite the save.
 - `tests/mobile.test.mjs` — the pointer-events specificity trap: every rule that
   re-enables input under `#ui` must outrank the blanket `#ui > *` click-through
   rule, and a closed sheet must stay off-screen.

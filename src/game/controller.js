@@ -14,10 +14,11 @@ import * as THREE from 'three';
 import {
   Chess, WHITE, BLACK,
   moveFrom, moveTo, moveFlags, movePromo, moveToUci,
-  pieceType, pieceColor, squareName, FLAG_CASTLE, FLAG_CAPTURE,
+  pieceType, pieceColor, squareName, FLAG_CASTLE, FLAG_CAPTURE, FLAG_EP,
 } from '../engine/chess.js';
 import { DIFFICULTIES, getDifficulty, DEFAULT_DIFFICULTY } from '../engine/ai.js';
 import { squareToWorld } from '../render/board.js';
+import { clearGame, loadGame, saveGame } from './autosave.js';
 
 /** Player-facing game phases. */
 export const Phase = {
@@ -29,8 +30,32 @@ export const Phase = {
   GAME_OVER: 'over',
 };
 
+/**
+ * The parts of a move that the move list and the review need.
+ *
+ * Called BEFORE `game.makeMove`: the SAN and the captured piece belong to the
+ * position before the move. The caller fills in `fen` once the move is made.
+ */
+function describeMove(game, move, san) {
+  const from = moveFrom(move);
+  const to = moveTo(move);
+  const flags = moveFlags(move);
+  const color = pieceColor(game.board[from]);
+  const capturedSq = (flags & FLAG_EP) ? (color === WHITE ? to + 8 : to - 8) : to;
+  const captured = (flags & FLAG_CAPTURE) ? game.board[capturedSq] : null;
+  return {
+    san,
+    uci: moveToUci(move),
+    from,
+    to,
+    color,
+    captured: captured ?? null,
+    check: san.includes('+') || san.includes('#'),
+  };
+}
+
 export class GameController {
-  constructor({ rig, cameraRig, pieceViews, board, hud, audio }) {
+  constructor({ rig, cameraRig, pieceViews, board, hud, audio, storage = null }) {
     this.rig = rig;
     this.cameraRig = cameraRig;
     this.pieceViews = pieceViews;
@@ -63,12 +88,22 @@ export class GameController {
     this.pendingSearch = null;
     this.pendingHint = null;
     this.thinkTimer = 0;
+
+    /** Where the auto-save lives, or null when storage is unavailable. */
+    this.storage = storage;
+    /** False until init() has settled, so boot cannot overwrite the save it reads. */
+    this.ready = false;
   }
 
   /* ------------------------------------------------------------- lifecycle -- */
 
   init() {
     this.spawnWorker();
+    if (this.restoreSavedGame()) {
+      this.ready = true;
+      this.updateControls();
+      return;
+    }
     this.pieceViews.rebuild(this.game);
     this.syncViews();
     this.hud.buildDifficultyOptions(DIFFICULTIES, this.difficulty);
@@ -77,7 +112,97 @@ export class GameController {
     this.hud.setStatus('Your move', 'Good luck');
     this.hud.setThinking(false);
     this.phase = Phase.PLAYER_TURN;
+    this.ready = true;
     this.updateControls();
+  }
+
+  /**
+   * Bring back the game that was on the board when the page was closed.
+   *
+   * The moves are replayed through the rules engine rather than trusting a
+   * stored FEN: the engine is the only thing that can say whether a position is
+   * reachable, and a replay also rebuilds the repetition history and the
+   * per-move FENs the review needs. A move that no longer replays means the entry
+   * is stale (an older build, a hand-edited value), so it is dropped and the
+   * player gets a fresh board rather than a broken one.
+   *
+   * @returns {boolean} True when a saved game was restored.
+   */
+  restoreSavedGame() {
+    const saved = loadGame(this.storage);
+    if (!saved) return false;
+
+    const game = new Chess();
+    const history = [game.positionKey()];
+    const moveList = [];
+    for (const uci of saved.moves) {
+      const move = game.legalMoves().find((m) => moveToUci(m) === uci);
+      if (move === undefined) {
+        clearGame(this.storage);
+        return false;
+      }
+      const entry = describeMove(game, move, game.moveToSan(move));
+      game.makeMove(move);
+      history.push(game.positionKey());
+      entry.fen = game.fen();
+      moveList.push(entry);
+    }
+
+    this.game = game;
+    this.history = history;
+    this.moveList = moveList;
+    this.playerColor = saved.playerColor;
+    if (DIFFICULTIES[saved.difficulty]) this.difficulty = saved.difficulty;
+    const last = moveList[moveList.length - 1];
+    this.lastMove = last ? { from: last.from, to: last.to } : null;
+    this.hintMove = null;
+    this.selected = null;
+    this.legalForSelected = [];
+    this.reviewPly = null;
+    this.promotion = null;
+
+    this.board.setSelection(null);
+    this.board.setLegalMoves([], this.game.board);
+    this.pieceViews.rebuild(this.game);
+    this.syncViews();
+    this.hud.buildDifficultyOptions(DIFFICULTIES, this.difficulty);
+    this.hud.setDifficulty(this.difficulty);
+    this.hud.setSide(this.playerColor);
+    this.hud.renderMoveList(this.moveList);
+    this.updateCaptured();
+    this.hud.setThinking(false);
+    this.hud.setEngineInfo(null);
+    this.hud.setSelectionInfo(null);
+
+    const status = this.game.status(this.history);
+    if (status.over) {
+      this.phase = Phase.GAME_OVER;
+      this.onGameOver(status);
+    } else if (this.game.turn === this.playerColor) {
+      this.phase = Phase.PLAYER_TURN;
+      this.hud.setStatus('Your move', status.check ? 'You are in check' : this.difficultyLabel());
+    } else {
+      this.phase = Phase.AI_THINKING;
+      this.hud.setStatus('Thinking', this.difficultyLabel());
+      this.requestAiMove();
+    }
+
+    if (moveList.length) {
+      this.hud.showToast?.(status.over ? 'Restored your finished game' : 'Resumed your last game');
+    }
+    return true;
+  }
+
+  /**
+   * Write the game to storage, after every move, undo and new game.
+   */
+  saveState() {
+    if (!this.ready || !this.storage) return;
+    saveGame(this.storage, {
+      playerColor: this.playerColor,
+      difficulty: this.difficulty,
+      moves: this.moveList.map((m) => m.uci),
+    });
   }
 
   /**
@@ -294,12 +419,13 @@ export class GameController {
     const color = pieceColor(movingPiece);
     const isCastle = (flags & FLAG_CASTLE) !== 0;
     const isCapture = (flags & FLAG_CAPTURE) !== 0;
-    const isEp = (flags & 4) !== 0;
+    const isEp = (flags & FLAG_EP) !== 0;
     const capturedSq = isEp ? (color === WHITE ? to + 8 : to - 8) : to;
     const capturedPiece = this.game.board[capturedSq];
 
     // SAN and the capture list must be read before the model is mutated.
     const san = this.game.moveToSan(move);
+    const entry = describeMove(this.game, move, san);
 
     this.phase = Phase.ANIMATING;
     this.clearSelection();
@@ -328,18 +454,13 @@ export class GameController {
     this.board.setLastMove(from, to);
     this.hintMove = null;
 
-    this.moveList.push({
-      san,
-      uci: moveToUci(move),
-      from, to, color,
-      captured: isCapture ? capturedPiece : null,
-      check: san.includes('+') || san.includes('#'),
-      // Stored so the move list can show the position after any move without
-      // replaying the whole game.
-      fen: this.game.fen(),
-    });
+    // Stored so the move list can show the position after any move without
+    // replaying the whole game.
+    this.moveList.push({ ...entry, fen: this.game.fen() });
     this.hud.renderMoveList(this.moveList);
     this.updateCaptured();
+    // Persist immediately: a reload during the animation must not lose the move.
+    this.saveState();
 
     await animPromise;
 
@@ -489,6 +610,7 @@ export class GameController {
     this.hud.hideGameOver();
     this.hud.setEngineInfo(null);
     this.audio.playUi();
+    this.saveState();
     this.updateControls();
   }
 
@@ -535,6 +657,7 @@ export class GameController {
       this.hud.setStatus('Thinking', this.difficultyLabel());
       this.requestAiMove();
     }
+    this.saveState();
   }
 
   setPlayerColor(color) {
@@ -546,6 +669,7 @@ export class GameController {
     this.hud.setDifficulty(id);
     this.hud.setEngineInfo(null);
     if (this.phase === Phase.PLAYER_TURN) this.hud.setStatus('Your move', this.difficultyLabel());
+    this.saveState();
   }
   /**
    * Suggest a move for the player.

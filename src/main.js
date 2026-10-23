@@ -12,6 +12,7 @@ import { CameraRig } from './render/camera.js';
 import { MaterialLibrary } from './render/materials.js';
 import { createBoard } from './render/board.js';
 import { PieceViews } from './render/pieceViews.js';
+import { usableStorage } from './game/autosave.js';
 import { TapGesture } from './game/tap.js';
 import { Hud } from './ui/hud.js';
 import { AudioEngine } from './audio/sfx.js';
@@ -119,6 +120,12 @@ async function boot() {
     });
   }
 
+  /** `localStorage` can be missing, or throw on access in privacy modes. */
+  const gameStorage = () => {
+    try { return usableStorage(window.localStorage); }
+    catch { return null; }
+  };
+
   // Settings survive a reload: a player who turned off the sound or prefers the
   // top view should not have to redo that on every visit.
   const SETTINGS_KEY = 'chess3d.settings.v1';
@@ -212,8 +219,9 @@ async function boot() {
     },
   });
 
-  // Apply persisted preferences. Difficulty is applied before the controller
-  // starts, so the first status line is already correct.
+  // Apply persisted preferences. Difficulty goes in before init(), because init()
+  // may restore a saved game, and the game carries its own side and difficulty —
+  // those must win over the settings, not the other way round.
   if (saved.sound === false) {
     audio.setEnabled(false);
     hud.btnSound.setState(false);
@@ -225,20 +233,20 @@ async function boot() {
 
   // ------------------------------------------------------------ controller --
   await setLoading('Waking the engine');
-  controller = new GameController({ rig, cameraRig, pieceViews, board, hud, audio });
+  controller = new GameController({
+    rig, cameraRig, pieceViews, board, hud, audio,
+    storage: gameStorage(),
+  });
+  if (saved.difficulty && DIFFICULTIES[saved.difficulty]) controller.setDifficulty(saved.difficulty);
   controller.init();
-  hud.setSide(WHITE);
-
-  // Restore the saved difficulty before the first status line is shown.
-  if (saved.difficulty && DIFFICULTIES[saved.difficulty]) {
-    controller.setDifficulty(saved.difficulty);
-    hud.setDifficulty(saved.difficulty);
-  }
+  hud.setSide(controller.playerColor);
+  hud.setDifficulty(controller.difficulty);
 
   // The HUD is on screen now, so its real extents are measurable: re-solve the
   // opening view against them rather than the fallback insets.
-  cameraRig.applyView('white');
-  hud.setView('white');
+  const startView = controller.playerColor === WHITE ? 'white' : 'black';
+  cameraRig.applyView(startView);
+  hud.setView(startView);
 
   // ----------------------------------------------------------- interaction --
   const raycaster = new THREE.Raycaster();
