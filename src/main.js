@@ -515,6 +515,22 @@ async function boot() {
   requestAnimationFrame(hideLoader);
   setTimeout(hideLoader, 600);
 
+  // ------------------------------------------------------------- offline --
+  // The service worker caches the whole game, which is what lets it open with no
+  // network — and what makes the page installable as an app.
+  //
+  // Registered only after the first frame: fetching and caching forty files must
+  // never compete with the boot, and a player who leaves immediately has no use
+  // for the cache. A failure is not fatal either — without a worker the game is
+  // still a set of static files and simply needs the network.
+  if ('serviceWorker' in navigator) {
+    const register = () => {
+      navigator.serviceWorker.register('./sw.js').catch(() => {});
+    };
+    if (document.readyState === 'complete') register();
+    else window.addEventListener('load', register, { once: true });
+  }
+
   // Exposed for debugging from the console.
   window.__chess = { rig, cameraRig, board, pieceViews, controller, hud, audio, lib };
 }

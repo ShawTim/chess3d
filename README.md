@@ -98,6 +98,11 @@ Any static host works. To deploy, publish the repository root as-is (see
 - Three.js is vendored into `vendor/three` and referenced through an import map.
 - The AI runs in a Web Worker so the render loop never stutters while it thinks.
 - No `fetch`, `XMLHttpRequest`, WebSocket or CDN reference exists in the source.
+- A service worker (`sw.js`) caches the whole game on the first visit, so the
+  page opens with the network switched off — and the manifest plus this worker
+  are what make it installable as an app. The AI keeps playing offline, because
+  the engine was always local; the cache only removes the last thing that still
+  needed a network, which was fetching the code itself.
 - A shared link is a URL fragment, and fragments are never sent to the server. The
   feature adds no request, no endpoint and no storage: the moves are replayed
   locally, exactly like the auto-save.
@@ -278,7 +283,7 @@ CPU was always the only thing it needed.
 npm test
 ```
 
-Eleven suites run in plain Node:
+Twelve suites run in plain Node:
 
 - `tests/perft.test.mjs` — perft node counts against the published values for
   six standard positions (including Kiwipete and the en-passant/promotion stress
@@ -330,6 +335,15 @@ Eleven suites run in plain Node:
   followed while an unusable one leaves the game alone, the URL tracks moves,
   undo and a new game, and the exported PGN keeps its headers, its result tag,
   its escaping and its 80-column wrapping.
+- `tests/offline.test.mjs` — the offline cache, on both sides. The precache list
+  must match the files that ship: nothing listed that does not exist, nothing
+  needed at runtime left out, and the worker is registered from the app root
+  after the first frame. Then the handlers themselves run: sw.js is loaded into
+  Node with stand-ins for `self`, `caches` and `fetch`, and prompted with the
+  requests a browser sends. Install fetches every listed file and survives a
+  404; activate drops older cache versions; a navigation is fresh online and
+  cached offline; a cached asset answers without waiting for the network; and a
+  cold offline visit gets a readable page rather than a browser error.
 - `tests/mobile.test.mjs` — the pointer-events specificity trap: every rule that
   re-enables input under `#ui` must outrank the blanket `#ui > *` click-through
   rule, and a closed sheet must stay off-screen.
@@ -417,6 +431,7 @@ Everything except the development-only paths:
 | `robots.txt` | crawler policy and sitemap pointer |
 | `sitemap.xml` | the single URL, for search engines |
 | `site.webmanifest` | app name, icons and theme colour for install |
+| `sw.js` | the offline cache and the installable-app requirement; must sit next to `index.html` |
 | `.nojekyll` | **required on GitHub Pages** — without it Jekyll processing can drop files |
 
 Development-only, safe to exclude: `node_modules/`, `tests/`, `tools/`,
@@ -424,8 +439,8 @@ Development-only, safe to exclude: `node_modules/`, `tests/`, `tools/`,
 
 ### Host requirements
 
-Two things must be true of the host, and both are worth checking because they
-fail in ways that are easy to miss:
+Three things must be true of the host, and all three are worth checking because
+they fail in ways that are easy to miss:
 
 1. **`.js` must be served with a JavaScript MIME type.** The page uses a module
    worker, and a wrong content type stops the AI worker loading. Every common
@@ -435,6 +450,13 @@ fail in ways that are easy to miss:
    as at a domain root. The absolute URLs in `index.html` (canonical, `og:image`,
    sitemap) are the one place a subpath is hard-coded — update those four values
    if you host it somewhere else.
+3. **`sw.js` must be served from the app root, and must not be pinned by the
+   HTTP cache.** A service worker's scope is its own directory, which is why the
+   file sits next to `index.html` rather than in `src/`. The browser also
+   revalidates it on navigation, but a `Cache-Control` longer than a day delays
+   updates past that check; GitHub Pages sends ten minutes, which is fine. If a
+   cached path is ever renamed, bump `CACHE_VERSION` in `sw.js` — a stale entry
+   under the old name would otherwise be kept for good.
 
 ### GitHub Pages
 
