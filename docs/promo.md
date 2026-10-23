@@ -174,6 +174,13 @@ Post a clip with every visual post. Pull the camera close and show, in order:
 Record at 60 fps, no music, keep the original sound — the wooden knock is half
 the "cinematic" claim.
 
+`docs/clip-brief.md` is the brief to hand to whoever records it: the deliverables,
+the hard rules, how to record cleanly, share links that open the exact positions
+worth filming, and a shot list with timings. It exists because the first attempt
+was produced by driving the app headlessly and stepping its clock frame by frame —
+technically 60 fps, and mechanical: the camera pushed in until pieces left the
+frame, and cuts between positions read as a slideshow.
+
 ---
 
 ## Order of operations
