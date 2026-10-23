@@ -95,6 +95,13 @@ canvas#scene:active { cursor: grabbing; }
   padding-left: 0.46em;
 }
 
+/*
+  The bar reports real progress instead of looping on its own: boot() hands a
+  fraction to setLoading() at each stage, which sets --loader-progress on the
+  track, so the fill advances as the geometry and textures are generated and
+  reaches the far end exactly as the loader fades. The old sweep said "something
+  is happening"; this says "this much is left".
+*/
 .loader-bar {
   width: 210px;
   height: 2px;
@@ -105,13 +112,11 @@ canvas#scene:active { cursor: grabbing; }
 .loader-bar span {
   display: block;
   height: 100%;
-  width: 40%;
-  background: linear-gradient(90deg, transparent, var(--accent), transparent);
-  animation: sweep 1.25s ease-in-out infinite;
-}
-@keyframes sweep {
-  0% { transform: translateX(-110%); }
-  100% { transform: translateX(360%); }
+  width: calc(var(--loader-progress, 0.02) * 100%);
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(217, 176, 106, 0.30), var(--accent));
+  box-shadow: 0 0 12px var(--accent-glow);
+  transition: width 0.55s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
 .loader-note {

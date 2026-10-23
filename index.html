@@ -132,8 +132,13 @@
 <div id="loader">
   <div class="loader-mark" aria-hidden="true">&#9822;</div>
   <div class="loader-title">Chess3D</div>
-  <div class="loader-bar"><span></span></div>
-  <div class="loader-note" id="loader-note">Starting</div>
+  <!--
+    The bar reports real progress: boot() passes a fraction to setLoading() at
+    each stage, so aria-valuenow and the fill track the work instead of looping.
+    The note is a live region, so the running stage is announced.
+  -->
+  <div id="loader-bar" class="loader-bar" role="progressbar" aria-label="Starting Chess3D" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="Starting"><span></span></div>
+  <div class="loader-note" id="loader-note" role="status">Starting</div>
 </div>
 
 <!--

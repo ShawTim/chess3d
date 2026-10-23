@@ -318,7 +318,7 @@ CPU was always the only thing it needed.
 npm test
 ```
 
-Thirteen suites run in plain Node:
+Fourteen suites run in plain Node:
 
 - `tests/perft.test.mjs` — perft node counts against the published values for
   six standard positions (including Kiwipete and the en-passant/promotion stress
@@ -395,6 +395,14 @@ Thirteen suites run in plain Node:
   every referenced icon present on disk, and the static text itself — the About
   article and the no-JavaScript summary must be present, verbatim, and long
   enough to index, because the game renders nothing a crawler can read.
+- `tests/loader.test.mjs` — the loading screen. Every boot stage must report a
+  real fraction (the bar used to be an indeterminate sweep), the fraction must
+  never go backwards, and the yield between stages must still resolve when no
+  frame is ever painted — a page opened in a background tab fires no
+  `requestAnimationFrame`, so the fallback timer is what stops the boot hanging
+  forever. The test lifts the real `setLoading` out of `main.js` and runs it
+  against fake elements and schedulers, because asserting the shape of that code
+  would pass even if it deadlocked.
 
 ### Inspecting the geometry
 

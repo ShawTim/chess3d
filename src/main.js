@@ -23,18 +23,34 @@ import { DIFFICULTIES, getDifficulty } from './engine/ai.js';
 import { createPuffTexture } from './render/textures.js';
 
 const loader = document.getElementById('loader');
+const loaderBar = document.getElementById('loader-bar');
 const loaderNote = document.getElementById('loader-note');
 
 /**
- * Update the loading text and yield so the browser can paint it.
+ * Report a boot stage, then yield so the browser can paint it.
+ *
+ * `progress` is 0..1 and is what the bar and `aria-valuenow` show. The numbers
+ * passed by boot() are deliberately front-loaded rather than an even split per
+ * stage: turning 32 lathe profiles and sampling the wood textures is most of the
+ * wait, so the bar has to be most of the way across before the pieces appear or
+ * it reads as stuck.
  *
  * The yield races an animation frame against a short timer. Gating purely on
  * requestAnimationFrame would park boot() forever when the page is opened in a
  * background or occluded tab, because rAF does not fire until the tab is
  * visible — the game must still finish initialising without being watched.
+ *
+ * @param {string} text Stage description, also shown to a screen reader.
+ * @param {number} progress Fraction of the boot that is done at this point.
  */
-function setLoading(text) {
+function setLoading(text, progress) {
   if (loaderNote) loaderNote.textContent = text;
+  if (loaderBar) {
+    const percent = Math.round(Math.max(0, Math.min(1, progress)) * 100);
+    loaderBar.style.setProperty('--loader-progress', String(percent / 100));
+    loaderBar.setAttribute('aria-valuenow', String(percent));
+    loaderBar.setAttribute('aria-valuetext', text);
+  }
   return new Promise((resolve) => {
     let done = false;
     const finish = () => {
@@ -86,18 +102,18 @@ async function boot() {
   const aboutDialog = document.getElementById('about');
 
   // ---------------------------------------------------------------- render --
-  await setLoading('Building the studio');
+  await setLoading('Baking the studio light', 0.06);
   const rig = new SceneRig(canvas);
   const cameraRig = new CameraRig(rig.camera, canvas);
   rig.attachControls(cameraRig.controls);
 
-  await setLoading('Painting textures');
+  await setLoading('Sampling the wood grain', 0.30);
   const lib = new MaterialLibrary({
     anisotropy: Math.min(8, rig.renderer.capabilities.getMaxAnisotropy()),
   });
 
   // ----------------------------------------------------------------- board --
-  await setLoading('Carving the board');
+  await setLoading('Carving the board', 0.52);
   const board = createBoard(lib, {});
   rig.scene.add(board.group);
 
@@ -131,7 +147,7 @@ async function boot() {
   rig.scene.add(pool);
 
   // ---------------------------------------------------------------- pieces --
-  await setLoading('Turning the pieces');
+  await setLoading('Turning 32 pieces', 0.78);
   const pieceViews = new PieceViews(rig.scene, lib);
 
   // -------------------------------------------------------------------- ui --
@@ -303,7 +319,7 @@ async function boot() {
   }
 
   // ------------------------------------------------------------ controller --
-  await setLoading('Waking the engine');
+  await setLoading('Waking the engine', 0.94);
   controller = new GameController({
     rig, cameraRig, pieceViews, board, hud, audio,
     storage: gameStorage(),
@@ -520,7 +536,7 @@ async function boot() {
     }
   });
 
-  await setLoading('Ready');
+  await setLoading('Ready', 1);
   schedule();
 
   // Fade the loader out once the first frame is on screen. Raced against a
