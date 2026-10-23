@@ -507,15 +507,22 @@ export class Engine {
  * Difficulty presets.
  *
  * Each tier pairs a search budget with a light touch of randomness so the
- * weaker bots feel human rather than merely shallow, while the top tiers play
- * at full strength. `book` says whether the tier may answer from the opening
- * book; the weakest two may not, because a book line is stronger than they are.
+ * weaker bots feel human rather than merely shallow, while the top tiers play at
+ * full strength. `book` says whether the tier may answer from the opening book;
+ * the weakest two may not, because a book line is stronger than they are.
+ *
+ * The ratings are estimates, and deliberately conservative ones: they follow the
+ * depth each tier actually reaches and the result of self-play between the
+ * tiers, not a measured rating list. Scoring a hand-written engine on a human
+ * rating scale is guesswork, and the previous labels claimed strength this one
+ * does not play at — hence "Expert" and "Maximum" instead of "Master" and
+ * "Grandmaster".
  */
 export const DIFFICULTIES = {
   beginner: {
     id: 'beginner',
     name: 'Beginner',
-    elo: '~800',
+    elo: '~500',
     blurb: 'Sees one move ahead and misses simple tactics.',
     limits: { depth: 1, timeMs: 120, randomness: 90, blunderRate: 0.30 },
     // The weaker tiers open like a beginner too: a book reply would be better
@@ -525,7 +532,7 @@ export const DIFFICULTIES = {
   easy: {
     id: 'easy',
     name: 'Easy',
-    elo: '~1100',
+    elo: '~700',
     blurb: 'Catches free pieces, still leaves some hanging.',
     limits: { depth: 2, timeMs: 250, randomness: 55, blunderRate: 0.16 },
     book: false,
@@ -533,7 +540,7 @@ export const DIFFICULTIES = {
   intermediate: {
     id: 'intermediate',
     name: 'Intermediate',
-    elo: '~1400',
+    elo: '~950',
     blurb: 'Solid club play with basic tactics.',
     limits: { depth: 3, timeMs: 600, randomness: 28, blunderRate: 0.07 },
     book: true,
@@ -541,24 +548,24 @@ export const DIFFICULTIES = {
   advanced: {
     id: 'advanced',
     name: 'Advanced',
-    elo: '~1700',
+    elo: '~1200',
     blurb: 'Punishes mistakes and builds long plans.',
     limits: { depth: 5, timeMs: 1200, randomness: 12, blunderRate: 0.02 },
     book: true,
   },
   master: {
     id: 'master',
-    name: 'Master',
-    elo: '~2000',
+    name: 'Expert',
+    elo: '~1450',
     blurb: 'Deep tactical search. Expect no gifts.',
     limits: { depth: 7, timeMs: 2500, randomness: 4, blunderRate: 0.0 },
     book: true,
   },
   grandmaster: {
     id: 'grandmaster',
-    name: 'Grandmaster',
-    elo: '~2200+',
-    blurb: 'Maximum strength. Punishes the slightest inaccuracy.',
+    name: 'Maximum',
+    elo: '~1700',
+    blurb: 'The strongest setting. Punishes the slightest inaccuracy.',
     limits: { depth: 12, timeMs: 5000, randomness: 0, blunderRate: 0.0 },
     book: true,
   },

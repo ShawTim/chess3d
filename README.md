@@ -25,7 +25,8 @@ Any static host works. To deploy, publish the repository root as-is (see
 
 **Gameplay**
 - Single-player against a built-in AI opponent, with six difficulty tiers from
-  Beginner (~800) to Grandmaster (~2200+).
+  Beginner (~500) to Maximum (~1700), labelled by estimated strength rather
+  than by chess titles it does not play at.
 - Play as White or Black; the AI opens when you take Black.
 - Full rules: castling, en passant, promotion (including underpromotion, chosen
   from a four-piece picker rather than assumed to be a queen), check,
@@ -243,18 +244,26 @@ feel like a club player who makes mistakes rather than a shallow program:
 
 | Tier | Depth | Time | Randomness | Blunder rate | Book |
 | --- | --- | --- | --- | --- | --- |
-| Beginner (~800) | 1 | 120 ms | 90 cp | 30% | no |
-| Easy (~1100) | 2 | 250 ms | 55 cp | 16% | no |
-| Intermediate (~1400) | 3 | 600 ms | 28 cp | 7% | yes |
-| Advanced (~1700) | 5 | 1200 ms | 12 cp | 2% | yes |
-| Master (~2000) | 7 | 2500 ms | 4 cp | 0% | yes |
-| Grandmaster (~2200+) | 12 | 5000 ms | 0 cp | 0% | yes |
+| Beginner (~500) | 1 | 120 ms | 90 cp | 30% | no |
+| Easy (~700) | 2 | 250 ms | 55 cp | 16% | no |
+| Intermediate (~950) | 3 | 600 ms | 28 cp | 7% | yes |
+| Advanced (~1200) | 5 | 1200 ms | 12 cp | 2% | yes |
+| Expert (~1450) | 7 | 2500 ms | 4 cp | 0% | yes |
+| Maximum (~1700) | 12 | 5000 ms | 0 cp | 0% | yes |
 *Randomness* is a tolerance in centipawns, not score noise: every root move
 within that many centipawns of the best one is treated as equally playable, so
 the weaker tiers vary their play without ever throwing away a clearly better
 move. *Blunder rate* is the separate chance of a deliberate, still-legal
 mistake. Both act only on the finished search — the evaluation the engine
 reports for a position is the same at every tier.
+
+The ratings are estimates, and deliberately conservative ones: they follow the
+depth each tier actually reaches and the results of self-play between the tiers,
+not a measured rating list. Putting a hand-written engine on a human rating scale
+is guesswork, and the old labels claimed strength this one does not play at —
+which is why the top two are called Expert and Maximum rather than Master and
+Grandmaster. On a laptop the top setting reaches about depth nine inside its five
+seconds; on a phone it is less.
 
 At the top tiers the engine searches roughly 90k–260k positions per second in
 the browser.
@@ -276,7 +285,7 @@ illegal move on the board — the search takes over instead. Past eight plies th
 book says nothing and the engine is on its own.
 
 The two weakest tiers do not use it at all: a book line is better than anything
-a one-ply search can find, and a beginner that opens like a grandmaster feels
+one-ply search can find, and a beginner that opens like a strong player feels
 scripted rather than weak. A book answer is also labelled as one in the engine
 readout, instead of reporting a depth of 0 and no nodes and looking broken.
 
@@ -514,6 +523,15 @@ either text disappears or drops below the length that makes it worth indexing.
 Indexing itself is still a manual step: verify the property in Google Search
 Console and submit `sitemap.xml` once. No amount of on-page work substitutes for
 that, or for links from somewhere else on the web.
+
+### Launch copy
+
+`docs/promo.md` holds drafted posts for the places worth telling: a Show HN title
+and first comment, per-subreddit variants (including one subreddit explicitly not
+to post in), the Three.js forum showcase post, itch.io metadata, the shot list for
+a short clip, and the order to do them in. It also fixes the rule the copy
+follows: lead with the zero-asset, no-build-step claim, because that is the
+unusual and true part — and never with a strength the engine does not play at.
 
 ### Social previews
 

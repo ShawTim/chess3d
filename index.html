@@ -192,7 +192,11 @@
       Worker so the board keeps rendering while it thinks. Six difficulty tiers
       set the depth, the time budget and how often the engine is allowed to settle
       for a slightly worse move, from a beginner that gives pieces away to a tier
-      that asks for twelve plies within five seconds per move.
+      that asks for twelve plies within five seconds per move. The tiers are
+      labelled by estimated strength — roughly 500 at the easy end and 1700 at the
+      top — and those numbers come from the depth each tier reaches and from
+      self-play between the tiers, not from a measured rating list, which is why
+      the top setting is called Maximum rather than Grandmaster.
     </p>
 
     <h2>Every rule, including the awkward ones</h2>
