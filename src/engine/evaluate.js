@@ -120,7 +120,7 @@ const BISHOP_PAIR = 30;
 const ROOK_OPEN_FILE = 18;
 const ROOK_SEMI_OPEN_FILE = 9;
 const MOBILITY_WEIGHT = 2;
-const SHIELD_MISSING = -12;
+const SHIELD_PENALTY = 12;
 
 /** True when the position is sparse enough to use the endgame king table. */
 function isEndgame(board) {
@@ -209,14 +209,14 @@ export function evaluate(game, options = {}) {
     const shield = (whitePawnFiles[Math.max(0, file - 1)] ? 1 : 0)
       + (whitePawnFiles[file] ? 1 : 0)
       + (whitePawnFiles[Math.min(7, file + 1)] ? 1 : 0);
-    score -= SHIELD_MISSING * (3 - shield);
+    score -= SHIELD_PENALTY * (3 - shield);
   }
   if (blackKingSq > 7) {
     const file = blackKingSq & 7;
     const shield = (blackPawnFiles[Math.max(0, file - 1)] ? 1 : 0)
       + (blackPawnFiles[file] ? 1 : 0)
       + (blackPawnFiles[Math.min(7, file + 1)] ? 1 : 0);
-    score += SHIELD_MISSING * (3 - shield);
+    score += SHIELD_PENALTY * (3 - shield);
   }
 
   for (let sq = 0; sq < 64; sq++) {

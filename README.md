@@ -216,6 +216,13 @@ feel like a club player who makes mistakes rather than a shallow program:
 | Master (~2000) | 7 | 2500 ms | 4 cp | 0% |
 | Grandmaster (~2200+) | 12 | 5000 ms | 0 cp | 0% |
 
+*Randomness* is a tolerance in centipawns, not score noise: every root move
+within that many centipawns of the best one is treated as equally playable, so
+the weaker tiers vary their play without ever throwing away a clearly better
+move. *Blunder rate* is the separate chance of a deliberate, still-legal
+mistake. Both act only on the finished search — the evaluation the engine
+reports for a position is the same at every tier.
+
 At the top tiers the engine searches roughly 90k–260k positions per second in
 the browser.
 

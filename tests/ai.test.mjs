@@ -205,5 +205,55 @@ console.log('\n--- Self-play smoke test (no crashes, sane game) ---');
   expect(game.legalMoves().length >= 0, 'final position is consistent');
 }
 
+console.log('\n--- Regression: skill settings must not corrupt the search ---');
+{
+  // A tier's `randomness` used to be added to the root scores inside the
+  // alpha-beta loop. A move that fails low returns the current `alpha` as its
+  // value, so ±12 cp of noise could promote a move that was nine pawns worse —
+  // which is why the higher tiers played worse than the lower ones. The advanced
+  // tier must still take the free queen with its own noise enabled.
+  const fen = '4k3/8/8/3q4/4P3/8/8/4K3 w - - 0 1';
+  const limits = { ...getDifficulty('advanced').limits, blunderRate: 0 };
+  const picks = [];
+  for (let i = 0; i < 5; i++) picks.push(best(fen, limits).uci);
+  expect(picks.every((uci) => uci === 'e4d5'), 'advanced takes the free queen with noise enabled', picks.join(' '));
+}
+{
+  // Noise picks between moves; it must never change the evaluation reported for
+  // the position itself.
+  const fen = 'r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4';
+  let same = true;
+  for (const id of ['intermediate', 'advanced']) {
+    const tier = getDifficulty(id).limits;
+    const clean = best(fen, { ...tier, randomness: 0, blunderRate: 0 });
+    const noisy = best(fen, tier);
+    if (clean.score !== noisy.score) {
+      same = false;
+      console.log(`     ${id}: clean ${clean.score} vs noisy ${noisy.score}`);
+    }
+  }
+  expect(same, 'skill noise leaves the reported score untouched');
+}
+{
+  // The pawn-shield term had an inverted sign, which taught the engine that an
+  // exposed king was better and is the main reason it would not castle.
+  const whiteWithShield = evaluate(new Chess('6k1/8/8/8/8/5PPP/6K1/8 w - - 0 1'));
+  const whiteBare = evaluate(new Chess('6k1/8/8/8/8/PPP5/6K1/8 w - - 0 1'));
+  expect(whiteWithShield > whiteBare + 20, 'a pawn shield beats bare files for White',
+    `${whiteWithShield} vs ${whiteBare}`);
+
+  const blackWithShield = evaluate(new Chess('8/5ppp/6k1/8/8/8/8/6K1 w - - 0 1'));
+  const blackBare = evaluate(new Chess('8/ppp5/6k1/8/8/8/8/6K1 w - - 0 1'));
+  expect(blackBare > blackWithShield + 20, 'a pawn shield beats bare files for Black',
+    `${blackBare} vs ${blackWithShield}`);
+}
+{
+  // `search(game, {})` must keep the limits the engine was constructed with.
+  const engine = new Engine({ depth: 4, timeMs: 4000, randomness: 0 });
+  const r = engine.search(new Chess('r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4'), {});
+  expect(r.depth === 4, 'partial limits inherit the constructor settings', `depth=${r.depth}`);
+}
+
+
 console.log(`\n${failures === 0 ? 'ALL PASS' : 'FAILURES: ' + failures} (${checks} checks)`);
 process.exit(failures === 0 ? 0 : 1);

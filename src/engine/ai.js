@@ -34,18 +34,6 @@ const MVV_LVA_VALUES = {
   [PAWN]: 100, [KNIGHT]: 320, [BISHOP]: 335, [ROOK]: 500, [QUEEN]: 950, [KING]: 20000,
 };
 
-// Simple, fast, deterministic PRNG for tie-breaking at equal scores.
-function makeRng(seed) {
-  let s = seed >>> 0 || 1;
-  return () => {
-    s ^= s << 13; s >>>= 0;
-    s ^= s >>> 17;
-    s ^= s << 5; s >>>= 0;
-    return s >>> 0;
-  };
-}
-const rng = makeRng(0xc0ffee);
-
 class TranspositionTable {
   constructor() {
     this.size = TT_SIZE;
@@ -105,12 +93,19 @@ function hashedLock(hash) {
  * @typedef {object} SearchLimits
  * @property {number} [depth]        Maximum search depth in plies.
  * @property {number} [timeMs]       Soft wall-clock budget for the whole search.
- * @property {number} [randomness]   Centipawn noise added to root scores.
+ * @property {number} [randomness]   Centipawn tolerance when picking between root moves.
  * @property {number} [blunderRate]  Probability [0,1] of playing a sub-optimal move.
  */
 
 export class Engine {
   constructor(limits = {}) {
+    // Start from the documented defaults so `search()` can inherit them; merging
+    // with `undefined` used to wipe the constructor's limits whenever a caller
+    // passed a partial (or empty) limits object.
+    this.depthLimit = 3;
+    this.timeLimit = 1000;
+    this.randomness = 0;
+    this.blunderRate = 0;
     this.setLimits(limits);
     this.tt = new TranspositionTable();
     this.nodes = 0;
@@ -119,13 +114,14 @@ export class Engine {
     this.stop = false;
     this.abortChecked = 0;
     this.rootHistory = [];
+    this.rootScores = null;
   }
 
   setLimits(limits) {
-    this.depthLimit = limits.depth ?? 3;
-    this.timeLimit = limits.timeMs ?? 1000;
-    this.randomness = limits.randomness ?? 0;
-    this.blunderRate = limits.blunderRate ?? 0;
+    this.depthLimit = limits.depth ?? this.depthLimit;
+    this.timeLimit = limits.timeMs ?? this.timeLimit;
+    this.randomness = limits.randomness ?? this.randomness;
+    this.blunderRate = limits.blunderRate ?? this.blunderRate;
     return this;
   }
 
@@ -154,12 +150,13 @@ export class Engine {
    * @returns {{move: number|null, score: number, depth: number, nodes: number, ms: number, pv: string[]}}
    */
   search(game, limits = {}) {
-    this.setLimits({ ...(this.currentLimits ?? {}), ...limits });
+    this.setLimits(limits);
     this.startTime = Date.now();
     this.timeMs = this.timeLimit;
     this.nodes = 0;
     this.stop = false;
     this.abortChecked = 0;
+    this.rootScores = null;
 
     const legal = game.legalMoves();
     if (!legal.length) {
@@ -184,17 +181,17 @@ export class Engine {
         bestScore = result.score;
         pv = result.pv;
         completedDepth = depth;
+        this.rootScores = result.scores;
       }
       if (Math.abs(bestScore) > MATE_THRESHOLD) break;
       if (Date.now() - this.startTime >= this.timeMs) break;
     }
 
     if (bestMove === null) bestMove = legal[0];
-
-    if (this.blunderRate > 0 && Math.random() < this.blunderRate) {
-      const alt = this.pickWeakerMove(game, legal);
-      if (alt !== null && alt !== bestMove) bestMove = alt;
-    }
+    bestMove = this.chooseSkillMove(game, legal, bestMove);
+    // The skill layer may prefer a different move than the search did, so keep
+    // the reported line honest.
+    if (pv.length && pv[0] !== moveToUci(bestMove)) pv = [moveToUci(bestMove)];
 
     return {
       move: bestMove,
@@ -204,6 +201,37 @@ export class Engine {
       ms: Date.now() - this.startTime,
       pv,
     };
+  }
+
+  /**
+   * Apply the tier's skill settings to the finished search.
+   *
+   * `randomness` used to be added to the root scores *inside* the alpha-beta
+   * loop, which was fatal: once `alpha` held the best score so far, every move
+   * that failed low returned `alpha` as its value, so a move half a pawn worse
+   * could be promoted by nothing more than a lucky noise sample. Tiers with more
+   * candidate moves therefore picked worse moves more often, which is exactly
+   * backwards. Instead the tolerance now only widens the *pool* of moves that are
+   * considered equally playable, using the exact scores of the last completed
+   * iteration.
+   */
+  chooseSkillMove(game, legal, bestMove) {
+    if (this.blunderRate > 0 && Math.random() < this.blunderRate) {
+      const alt = this.pickWeakerMove(game, legal);
+      if (alt !== null && alt !== bestMove) return alt;
+    }
+    if (this.randomness <= 0 || !this.rootScores || this.rootScores.size === 0) return bestMove;
+
+    let best = -Infinity;
+    for (const score of this.rootScores.values()) if (score > best) best = score;
+    if (!Number.isFinite(best)) return bestMove;
+
+    const pool = [];
+    for (const [move, score] of this.rootScores) {
+      if (score >= best - this.randomness) pool.push(move);
+    }
+    if (!pool.length) return bestMove;
+    return pool[Math.floor(Math.random() * pool.length)];
   }
 
   /**
@@ -230,14 +258,15 @@ export class Engine {
   }
 
   searchRoot(game, depth) {
-    const us = game.turn;
-    let alpha = -Infinity;
-    const beta = Infinity;
     let bestMove = null;
     let bestScore = -Infinity;
     let bestPv = [];
+    /** Exact scores only; bounds never enter this map. */
+    const scores = new Map();
+    const failed = [];
 
     const moves = this.orderMoves(game, this.rootMoves, 0, null);
+    let alpha = -Infinity;
 
     for (const m of moves) {
       game.makeMove(m);
@@ -245,29 +274,54 @@ export class Engine {
       if (this.isDrawByHalfmoveOrRepetition(game)) {
         score = 0;
       } else {
-        score = -this.negamax(game, depth - 1, -beta, -alpha, 1);
+        // A move that beats `alpha` is searched without a lower bound, so the
+        // value that comes back is exact. A move that fails low only returns the
+        // bound, which is why bounds are never treated as scores any more.
+        score = -this.negamax(game, depth - 1, -Infinity, -alpha, 1);
       }
       game.undoMove();
 
       if (this.stop && depth > 1) break;
 
-      if (this.randomness > 0) score += ((rng() / 0xffffffff) * 2 - 1) * this.randomness;
-
-      if (score > bestScore) {
-        bestScore = score;
-        bestMove = m;
-      }
       if (score > alpha) {
         alpha = score;
-        bestPv = [moveToUci(m)];
+        bestScore = score;
+        bestMove = m;
+        scores.set(m, score);
+      } else {
+        failed.push({ move: m, bound: score });
       }
     }
 
-    // Collect a nicer PV line by walking the transposition table.
-    const line = this.extractPv(game, depth);
-    if (line.length) bestPv = line;
+    // The skill tolerance widens the pool of playable moves, but a failed-low
+    // move only carries an upper bound. Re-search just the candidates whose bound
+    // still overlaps the band, with a null window at `threshold`: anything above
+    // it is inside the band and comes back exact, and anything at or below it
+    // fails low immediately.
+    if (this.randomness > 0 && !this.stop && bestMove !== null) {
+      const threshold = bestScore - this.randomness;
+      for (const { move, bound } of failed) {
+        if (bound <= threshold) continue;
+        game.makeMove(move);
+        const score = this.isDrawByHalfmoveOrRepetition(game)
+          ? 0
+          : -this.negamax(game, depth - 1, -Infinity, -threshold, 1);
+        game.undoMove();
+        if (this.stop) break;
+        if (score > threshold) scores.set(move, score);
+      }
+    }
 
-    return { move: bestMove, score: bestScore, pv: bestPv };
+    // Collect a nicer PV line by walking the transposition table, but only trust
+    // it when it starts with the move we actually chose: a line that transposes
+    // back to the root stores an entry under the root's hash, and reading that
+    // one back would report a different first move.
+    const line = this.extractPv(game, depth);
+    if (bestMove === null) bestPv = line;
+    else if (line.length && line[0] === moveToUci(bestMove)) bestPv = line;
+    else bestPv = [moveToUci(bestMove)];
+
+    return { move: bestMove, score: bestScore, pv: bestPv, scores };
   }
 
   extractPv(game, depth) {
