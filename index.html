@@ -136,9 +136,129 @@
   <div class="loader-note" id="loader-note">Starting</div>
 </div>
 
+<!--
+  The About panel.
+
+  Everything this game is used to be described only in the README, which left the
+  page itself with one sentence of text for a search engine to read: the board is
+  a canvas, the HUD is built by JavaScript, and the visible body was empty. This
+  article is real markup in the document, so the page says what it is whether or
+  not a crawler runs the game. It lives in a native <dialog>, so it costs no
+  layout until a player asks for it and closes with Escape for free.
+-->
+<dialog id="about" class="about" aria-labelledby="about-title">
+  <article class="about-body">
+    <form method="dialog" class="about-close">
+      <button class="btn" type="submit">Close</button>
+    </form>
+
+    <h1 id="about-title">Chess3D — three-dimensional chess against an offline engine</h1>
+
+    <p class="about-lede">
+      Chess3D is a complete game of chess rendered as a three-dimensional set you
+      can orbit, zoom and turn: procedurally generated Staunton pieces on a
+      veneered board, lit like a studio photograph, with a hand-written engine as
+      your opponent. It runs entirely inside this page — no server, no account, no
+      network connection, and nothing to install before the first move.
+    </p>
+
+    <h2>The set is generated, not downloaded</h2>
+    <p>
+      There is no model file and no texture image anywhere in the project. Every
+      piece is turned from a hand-tuned profile the way a lathe would cut it —
+      foot, plinth, cove, beads, collar — with the knight's head lofted along its
+      own curved spine and the rook's crown built from six tapered merlons.
+      Corners sharper than about thirty degrees are deliberately creased, so a
+      highlight stops at a real arris instead of being averaged away, and every
+      section carries a sub-millimetre ovality so no piece is a perfect solid of
+      revolution.
+    </p>
+    <p>
+      The board is veneer: the grain is sampled from a different part of the tiling
+      for each of the thirty-two squares, half of them rotated a quarter turn, over
+      a hairline seam. Marble, felt and brass are generated the same way, and the
+      room is a small studio — warm key softbox, cool fill panel, rim strip —
+      captured into an environment map at load time. Sound is synthesised with
+      WebAudio and played through a generated 0.45-second room, which is why a
+      piece landing sounds like wood on a table rather than a beep.
+    </p>
+
+    <h2>The opponent is a real engine</h2>
+    <p>
+      The computer player is a negamax search with alpha-beta pruning, iterative
+      deepening, a transposition table, quiescence search, check extension and
+      killer/history move ordering. It is written from scratch in JavaScript, with
+      no Stockfish, no WebAssembly and no network call, and it runs in a Web
+      Worker so the board keeps rendering while it thinks. Six difficulty tiers
+      set the depth, the time budget and how often the engine is allowed to settle
+      for a slightly worse move, from a beginner that gives pieces away to a tier
+      that asks for twelve plies within five seconds per move.
+    </p>
+
+    <h2>Every rule, including the awkward ones</h2>
+    <p>
+      Castling with the right to lose it, en passant, promotion with a choice of
+      four pieces rather than an assumed queen, check, checkmate, stalemate, the
+      fifty-move rule, threefold repetition and insufficient material. Undo takes
+      back your move and the engine's reply; the move list is standard algebraic
+      notation, and clicking a move shows the board as it stood at that point so a
+      game can be reviewed before it is abandoned.
+    </p>
+
+    <h2>Offline, private, and yours</h2>
+    <p>
+      The game is a static page: no backend, no database, no analytics and no
+      cookies. Your game is auto-saved in the browser and replayed from its moves
+      when you come back, so a reload cannot lose it. A position can be shared as a
+      link — the whole game travels in the URL fragment, which browsers never send
+      to a server — or exported as PGN for any other chess program. A service
+      worker caches the page on the first visit, so it opens with the network
+      switched off and can be installed as an app on a phone or a desktop.
+    </p>
+
+    <h2>Controls</h2>
+    <ul>
+      <li>Click or tap a piece, then a destination square, to move it.</li>
+      <li>Drag to orbit the camera; scroll or pinch to zoom.</li>
+      <li><strong>U</strong> undo, <strong>H</strong> hint, <strong>N</strong> new game, <strong>F</strong> flip the camera.</li>
+      <li><strong>1</strong> White view, <strong>2</strong> Black view, <strong>3</strong> side view, <strong>4</strong> top view.</li>
+      <li><strong>Esc</strong> leaves the review, the settings sheet or the promotion dialog.</li>
+    </ul>
+
+    <h2>How it is built</h2>
+    <p>
+      Plain ES modules and a vendored copy of Three.js reached through an import
+      map. No build step, no bundler, and no dependency fetched at runtime: the
+      files you downloaded are the files that ran. The rules engine and the search
+      have no rendering dependency at all, which is why they can be unit-tested in
+      Node and reused unchanged inside the Web Worker.
+    </p>
+  </article>
+</dialog>
+
+<!--
+  Without JavaScript the dialog is never opened, so the same summary is repeated
+  here, where a reader or a crawler that does not run scripts can still find it.
+-->
 <noscript>
-  <div style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;color:#e9e6df;font-family:system-ui,sans-serif;text-align:center;padding:24px;">
-    Chess3D needs JavaScript and WebGL to render the board.
+  <div class="noscript">
+    <h1>Chess3D</h1>
+    <p>
+      Chess3D is a three-dimensional chess game you play in the browser against a
+      computer opponent. Drawing the board and running the engine both need
+      JavaScript and WebGL, so the game itself cannot start without them.
+    </p>
+    <p>
+      The set is generated in code rather than downloaded — turned Staunton
+      pieces, wood grain sampled per square, marble, a studio environment and
+      synthesised sound — and the opponent is a hand-written alpha-beta search that
+      also runs on your machine, with no server and no network access once the page
+      has loaded.
+    </p>
+    <p>
+      Full chess rules, six difficulty tiers, undo, hints, a reviewable move list,
+      share links, PGN export and offline play. Enable JavaScript to start a game.
+    </p>
   </div>
 </noscript>
 

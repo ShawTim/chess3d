@@ -97,7 +97,9 @@ Any static host works. To deploy, publish the repository root as-is (see
   called over the network. See [How the AI works](#how-the-ai-works--and-why-it-is-offline).
 - Three.js is vendored into `vendor/three` and referenced through an import map.
 - The AI runs in a Web Worker so the render loop never stutters while it thinks.
-- No `fetch`, `XMLHttpRequest`, WebSocket or CDN reference exists in the source.
+- No `fetch`, `XMLHttpRequest`, WebSocket or CDN reference exists in the game's
+  source. The only `fetch` in the repository is the service worker asking for its
+  own static files, which it then serves from the cache.
 - A service worker (`sw.js`) caches the whole game on the first visit, so the
   page opens with the network switched off — and the manifest plus this worker
   are what make it installable as an app. The AI keeps playing offline, because
@@ -117,6 +119,7 @@ Any static host works. To deploy, publish the repository root as-is (see
 | Click a move in the list (or focus it and press Enter) | Review the position after that move (click again, or press Esc, to return) |
 | Tap **Menu** (phone) | Open difficulty, side, move list and captured pieces |
 | **Copy link** / **Copy PGN** (left panel, or the phone sheet) | Copy a link that reopens this position, or the game as PGN |
+| **How it works** (left panel, or the phone sheet) | Open the About panel: what the set, the engine and the offline cache are |
 | `U` | Undo (also cancels an engine search in flight) |
 | `H` | Hint (computed in the worker, so the board keeps rendering) |
 | `N` | New game |
@@ -349,7 +352,9 @@ Twelve suites run in plain Node:
   rule, and a closed sheet must stay off-screen.
 - `tests/seo.test.mjs` — the social and search metadata: absolute og:image URLs,
   a canonical matching the deployed host and subpath, structured data that parses,
-  and every referenced icon present on disk.
+  every referenced icon present on disk, and the static text itself — the About
+  article and the no-JavaScript summary must be present, verbatim, and long
+  enough to index, because the game renders nothing a crawler can read.
 
 ### Inspecting the geometry
 
@@ -463,6 +468,21 @@ they fail in ways that are easy to miss:
 Publish the repository root from the `main` branch. `.nojekyll` is already
 committed. If you use a custom domain, set it in the repository's Pages settings
 and add a `CNAME` file containing the domain.
+
+### Search
+
+The page is a canvas and a HUD that JavaScript builds, so a crawler that runs no
+scripts used to find one sentence in the body: thin content, and part of the
+reason a `site:` query returned nothing. The About article is therefore real
+markup in `index.html`, inside a native `<dialog>` that stays closed until a
+player opens it — about 650 words on the set, the engine, the rules, the offline
+cache and the controls — and the `<noscript>` block repeats a short summary for
+readers and crawlers with no scripting at all. `tests/seo.test.mjs` fails if
+either text disappears or drops below the length that makes it worth indexing.
+
+Indexing itself is still a manual step: verify the property in Google Search
+Console and submit `sitemap.xml` once. No amount of on-page work substitutes for
+that, or for links from somewhere else on the web.
 
 ### Social previews
 

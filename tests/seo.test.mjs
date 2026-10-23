@@ -175,5 +175,48 @@ for (const [f, min] of [['docs/og-image.png', 20000], ['docs/icon-512.png', 3000
   console.log(`${ok ? 'ok  ' : 'FAIL'} ${f} ${sz} bytes (min ${min})`);
 }
 
+console.log('\n--- Text a crawler can read without playing the game ---');
+{
+  // Strip script/style and tags, then count what a reader would actually see.
+  const text = (source) => source
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&[a-z#0-9]+;/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const words = (source) => text(source).split(' ').filter(Boolean).length;
+
+  const about = html.match(/<dialog id="about"[\s\S]*?<\/dialog>/)?.[0] ?? '';
+  const noScript = html.match(/<noscript>([\s\S]*?)<\/noscript>/)?.[1] ?? '';
+
+  expect(about.length > 0, 'the About article is in the document');
+  expect(/<article class="about-body">/.test(about), 'the text is an article, not div soup');
+  expect(/aria-labelledby="about-title"/.test(about), 'the dialog is named by its own heading');
+  expect(/<h1 id="about-title">/.test(about), 'and has a real top-level heading');
+  expect(!/<dialog[^>]*\sopen\b/.test(html),
+    'the dialog is closed on load, so it costs the board no layout');
+
+  const aboutWords = words(about);
+  expect(aboutWords >= 450, 'the article has enough substance to be worth indexing',
+    `${aboutWords} words`);
+
+  // The long-tail terms the page is actually about. A crawler that runs no
+  // scripts used to see one sentence, which is what made this a thin page.
+  for (const term of ['Chess3D', 'three-dimensional', 'Three.js', 'offline',
+    'Web Worker', 'castling', 'en passant', 'Staunton', 'procedural', 'PGN']) {
+    expect(new RegExp(term, 'i').test(text(about)), `the article mentions ${term}`);
+  }
+  expect(!/https?:\/\//.test(text(about)), 'the article references nothing external');
+
+  const noScriptWords = words(noScript);
+  expect(noScriptWords >= 80, 'the no-JavaScript summary is a paragraph, not a warning',
+    `${noScriptWords} words`);
+  expect(/WebGL/.test(noScript), 'and still explains what the game needs');
+
+  const total = aboutWords + noScriptWords;
+  expect(total >= 550, 'the page carries real text with no script at all', `${total} words`);
+}
+
 console.log(`\n${failures === 0 ? 'ALL PASS' : 'FAILURES: ' + failures} (${checks} checks)`);
 process.exit(failures === 0 ? 0 : 1);

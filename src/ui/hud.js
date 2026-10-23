@@ -34,6 +34,7 @@ export class Hud {
    * @param {() => void} callbacks.onRestart
    * @param {() => void} callbacks.onShareLink
    * @param {() => void} callbacks.onSharePgn
+   * @param {() => void} callbacks.onAbout
    */
   constructor(callbacks = {}) {
     this.cb = callbacks;
@@ -124,6 +125,17 @@ export class Hud {
     this.btnSharePgn.setAttribute('aria-label', 'Copy the game as PGN');
     shareRow.append(this.btnShareLink, this.btnSharePgn);
     this.left.appendChild(shareRow);
+
+    // Opens the About article that lives in index.html. The text is static markup
+    // rather than something the HUD builds, because the page has to describe
+    // itself to a crawler as well as to a player.
+    this.left.appendChild(this.sectionTitle('About'));
+    const aboutRow = el('div', 'options-row single');
+    this.btnAbout = this.actionButton('How it works', () => this.cb.onAbout?.());
+    this.btnAbout.title = 'How the set, the engine and the offline cache work';
+    this.btnAbout.setAttribute('aria-label', 'About Chess3D');
+    aboutRow.appendChild(this.btnAbout);
+    this.left.appendChild(aboutRow);
 
     // The side panels are wrapped so a phone can present them as one slide-up
     // sheet the player opens on demand. On desktop the wrapper is

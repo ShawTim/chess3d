@@ -81,6 +81,9 @@ async function copyText(text) {
 
 async function boot() {
   const canvas = document.getElementById('scene');
+  // The About article is static markup in index.html (so the page describes
+  // itself without JavaScript); all the game does is open its dialog.
+  const aboutDialog = document.getElementById('about');
 
   // ---------------------------------------------------------------- render --
   await setLoading('Building the studio');
@@ -271,6 +274,13 @@ async function boot() {
       hud.showToast(copied ? 'PGN copied' : 'Copy failed', copied ? 1800 : 3000);
     },
     onMoveClick: (index) => controller.preview(index),
+    // The article is a native dialog, so focus trapping and Escape are free. The
+    // only script it needs is opening it and letting a backdrop click close it.
+    onAbout: () => {
+      audio.unlock();
+      audio.playUi();
+      if (aboutDialog && !aboutDialog.open) aboutDialog.showModal();
+    },
     onExitReview: () => controller.returnToLive(),
     // Opening the mobile sheet disables camera input: the sheet is a modal
     // surface, and an orbit drag that started on it should not spin the board
@@ -409,7 +419,9 @@ async function boot() {
     if (e.target && /input|textarea/i.test(e.target.tagName)) return;
     // Modal surfaces own the keyboard: do not let game shortcuts fire beneath
     // the promotion or confirmation dialog.
-    if (controller.phase === 'promoting' || hud.confirmOpen) return;
+    // A modal surface owns the keyboard: the promotion dialog, the confirmation
+    // and the About article must not let a game shortcut fire underneath them.
+    if (controller.phase === 'promoting' || hud.confirmOpen || aboutDialog?.open) return;
     switch (e.key.toLowerCase()) {
       case 'u': controller.undo(); break;
       case 'h': controller.hint(); break;
@@ -439,6 +451,12 @@ async function boot() {
   // while the board showed another.
   window.addEventListener('hashchange', () => {
     if (!controller.adoptUrlHash()) controller.writeUrl();
+  });
+
+  // A click on the backdrop is delivered to the dialog element itself, which is
+  // the cheapest way to offer click-outside-to-close without a wrapper div.
+  aboutDialog?.addEventListener('click', (event) => {
+    if (event.target === aboutDialog) aboutDialog.close();
   });
 
   // ----------------------------------------------------------------- resize --
