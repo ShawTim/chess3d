@@ -9,13 +9,14 @@
  * dependency, which is what makes this possible and keeps the app offline.
  *
  * Protocol
- *   in : { id, type: 'search', fen, difficulty, history }
- *   out: { id, type: 'result', uci, score, depth, nodes, ms, pv, ponder }
+ *   in : { id, type: 'search', fen, difficulty, history, moves }
+ *   out: { id, type: 'result', uci, score, depth, nodes, ms, pv, book? }
  *        { id, type: 'error', message }
  *        { type: 'ready', version }
  */
 import { Chess, moveToUci } from '../engine/chess.js';
 import { Engine, getDifficulty } from '../engine/ai.js';
+import { bookMove } from '../engine/book.js';
 
 const VERSION = 3;
 
@@ -30,7 +31,7 @@ self.addEventListener('message', (event) => {
   const msg = event.data;
   if (!msg || msg.type !== 'search') return;
 
-  const { id, fen, difficulty, history = [], limits: overrides } = msg;
+  const { id, fen, difficulty, history = [], moves = null, limits: overrides } = msg;
 
   try {
     const game = new Chess(fen);
@@ -43,6 +44,23 @@ self.addEventListener('message', (event) => {
     if (legal.length === 0) {
       postMessage({ id, type: 'result', uci: null, score: game.inCheck(game.turn) ? -99999 : 0, depth: 0, nodes: 0, ms: 0, pv: [] });
       return;
+    }
+
+    // The opening book answers before the search does: the first few moves are
+    // known, and searching them wastes the player's time to reach a move the book
+    // already has. The entry is checked against the legal moves above, so a stale
+    // line or a move list that does not match the position cannot reach the board.
+    if (diff.book && Array.isArray(moves)) {
+      const opening = bookMove(moves);
+      if (opening) {
+        const bookChoice = legal.find((m) => moveToUci(m) === opening);
+        if (bookChoice !== undefined) {
+          postMessage({
+            id, type: 'result', uci: opening, score: 0, depth: 0, nodes: 0, ms: 0, pv: [opening], book: true,
+          });
+          return;
+        }
+      }
     }
 
     // Filter out moves that would immediately repeat a position three times when

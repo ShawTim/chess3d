@@ -52,6 +52,7 @@ const PRECACHE = [
   './docs/icon-512.png',
   './src/audio/sfx.js',
   './src/engine/ai.js',
+  './src/engine/book.js',
   './src/engine/chess.js',
   './src/engine/evaluate.js',
   './src/game/autosave.js',

@@ -368,7 +368,9 @@ export class GameController {
     const pending = this.pendingSearch;
     this.pendingSearch = null;
     this.hud.setThinking(false);
-    this.hud.setEngineInfo({ depth: msg.depth, nodes: msg.nodes, ms: msg.ms, score: msg.score });
+    this.hud.setEngineInfo({
+      depth: msg.depth, nodes: msg.nodes, ms: msg.ms, score: msg.score, book: msg.book === true,
+    });
 
     if (!msg.uci) { this.onGameOver(); return; }
 
@@ -614,6 +616,9 @@ export class GameController {
           fen: this.game.fen(),
           difficulty: this.difficulty,
           history: this.history,
+          // The book is keyed by the moves that reached the position, not by the
+          // position itself, so the worker needs the game's move list as well.
+          moves: this.moveList.map((m) => m.uci),
         });
       } else {
         // Synchronous fallback: search on the main thread so the game stays
@@ -621,8 +626,20 @@ export class GameController {
         import('../engine/ai.js')
           .then(({ findBestMove }) => {
             if (!this.pendingSearch || this.pendingSearch.id !== id) return;
-            const res = findBestMove(this.game.fen(), this.difficulty);
-            this.onWorkerMessage({ id, type: 'result', uci: res.uci, score: res.score, depth: res.depth, nodes: res.nodes, ms: res.ms, pv: res.pv });
+            const res = findBestMove(this.game.fen(), this.difficulty, {
+              moves: this.moveList.map((m) => m.uci),
+            });
+            this.onWorkerMessage({
+              id,
+              type: 'result',
+              uci: res.uci,
+              score: res.score,
+              depth: res.depth,
+              nodes: res.nodes,
+              ms: res.ms,
+              pv: res.pv,
+              book: res.book === true,
+            });
           })
           .catch((err) => {
             console.error('Search failed', err);

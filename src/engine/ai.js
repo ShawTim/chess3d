@@ -13,6 +13,7 @@ import {
   isCapture, PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING, WHITE, BLACK,
   FLAG_EP, FLAG_PROMO, EMPTY,
 } from './chess.js';
+import { bookMove } from './book.js';
 import {
   evaluate, evaluateForSideToMove, PIECE_VALUES, MATE_SCORE, MATE_THRESHOLD,
 } from './evaluate.js';
@@ -507,7 +508,8 @@ export class Engine {
  *
  * Each tier pairs a search budget with a light touch of randomness so the
  * weaker bots feel human rather than merely shallow, while the top tiers play
- * at full strength.
+ * at full strength. `book` says whether the tier may answer from the opening
+ * book; the weakest two may not, because a book line is stronger than they are.
  */
 export const DIFFICULTIES = {
   beginner: {
@@ -516,6 +518,9 @@ export const DIFFICULTIES = {
     elo: '~800',
     blurb: 'Sees one move ahead and misses simple tactics.',
     limits: { depth: 1, timeMs: 120, randomness: 90, blunderRate: 0.30 },
+    // The weaker tiers open like a beginner too: a book reply would be better
+    // than anything they can find, which would make them feel scripted.
+    book: false,
   },
   easy: {
     id: 'easy',
@@ -523,6 +528,7 @@ export const DIFFICULTIES = {
     elo: '~1100',
     blurb: 'Catches free pieces, still leaves some hanging.',
     limits: { depth: 2, timeMs: 250, randomness: 55, blunderRate: 0.16 },
+    book: false,
   },
   intermediate: {
     id: 'intermediate',
@@ -530,6 +536,7 @@ export const DIFFICULTIES = {
     elo: '~1400',
     blurb: 'Solid club play with basic tactics.',
     limits: { depth: 3, timeMs: 600, randomness: 28, blunderRate: 0.07 },
+    book: true,
   },
   advanced: {
     id: 'advanced',
@@ -537,6 +544,7 @@ export const DIFFICULTIES = {
     elo: '~1700',
     blurb: 'Punishes mistakes and builds long plans.',
     limits: { depth: 5, timeMs: 1200, randomness: 12, blunderRate: 0.02 },
+    book: true,
   },
   master: {
     id: 'master',
@@ -544,6 +552,7 @@ export const DIFFICULTIES = {
     elo: '~2000',
     blurb: 'Deep tactical search. Expect no gifts.',
     limits: { depth: 7, timeMs: 2500, randomness: 4, blunderRate: 0.0 },
+    book: true,
   },
   grandmaster: {
     id: 'grandmaster',
@@ -551,6 +560,7 @@ export const DIFFICULTIES = {
     elo: '~2200+',
     blurb: 'Maximum strength. Punishes the slightest inaccuracy.',
     limits: { depth: 12, timeMs: 5000, randomness: 0, blunderRate: 0.0 },
+    book: true,
   },
 };
 
@@ -561,17 +571,39 @@ export function getDifficulty(id) {
 }
 
 /**
- * Convenience wrapper: pick a move for the position with the given difficulty.
+ * Pick a move for a position.
+ *
+ * The opening book is consulted first, but only when the tier is allowed to use
+ * it and the caller passes the move sequence the position came from: the book is
+ * keyed by moves, not by FEN, so a position reached by a different order is not
+ * in it. Whatever the book suggests is then checked against the legal moves of
+ * the actual position — a book can never produce an illegal move.
  *
  * @param {string} fen
- * @param {string} difficultyId
- * @returns {{move: number|null, uci: string|null, score: number, depth: number, nodes: number, ms: number, pv: string[]}}
+ * @param {string} [difficultyId]
+ * @param {{moves?: string[]} & object} [extra] Search overrides, plus the game's
+ *   move list for the book.
+ * @returns {{move: number|null, uci: string|null, score: number, depth: number,
+ *   nodes: number, ms: number, pv: string[], book?: boolean}}
  */
 export function findBestMove(fen, difficultyId = DEFAULT_DIFFICULTY, extra = {}) {
   const diff = getDifficulty(difficultyId);
-  const engine = new Engine(diff.limits);
+  const { moves = null, ...overrides } = extra;
   const game = new Chess(fen);
-  const result = engine.search(game, { ...diff.limits, ...extra });
+
+  if (diff.book && Array.isArray(moves)) {
+    const opening = bookMove(moves);
+    if (opening) {
+      const legal = game.legalMoves();
+      const move = legal.find((m) => moveToUci(m) === opening);
+      if (move !== undefined) {
+        return { move, uci: opening, score: 0, depth: 0, nodes: 0, ms: 0, pv: [opening], book: true };
+      }
+    }
+  }
+
+  const engine = new Engine(diff.limits);
+  const result = engine.search(game, { ...diff.limits, ...overrides });
   return {
     ...result,
     uci: result.move !== null ? moveToUci(result.move) : null,

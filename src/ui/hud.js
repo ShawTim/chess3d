@@ -419,6 +419,9 @@ export class Hud {
 
   setEngineInfo(info) {
     if (!info) { this.engineBody.textContent = 'idle'; return; }
+    // A book move is not a search: showing "d0 · 0k nodes · 0.00" would read as a
+    // broken engine rather than as an opening the book knows.
+    if (info.book) { this.engineBody.textContent = 'opening book'; return; }
     const knps = info.ms > 0 ? (info.nodes / info.ms) : 0;
     const scorePawns = (info.score / 100).toFixed(2);
     this.engineBody.textContent =

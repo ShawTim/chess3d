@@ -31,6 +31,9 @@ Any static host works. To deploy, publish the repository root as-is (see
   from a four-piece picker rather than assumed to be a queen), check,
   checkmate, stalemate, the fifty-move rule, threefold repetition and
   insufficient material.
+- The engine opens from a small built-in book of main lines, so the first moves
+  arrive instantly and vary from game to game (1.e4 or 1.d4, and a different
+  defence each time); past eight plies it searches on its own.
 - Undo (takes back both your move and the AI's reply, and cancels a search that
   is still running), a Hint button that asks the worker for a strong move, and a
   move list in standard algebraic notation with captured-piece trays. Clicking a
@@ -238,15 +241,14 @@ On top of that:
 Each tier pairs a search budget with a little randomness, so the weaker bots
 feel like a club player who makes mistakes rather than a shallow program:
 
-| Tier | Depth | Time | Randomness | Blunder rate |
-| --- | --- | --- | --- | --- |
-| Beginner (~800) | 1 | 120 ms | 90 cp | 30% |
-| Easy (~1100) | 2 | 250 ms | 55 cp | 16% |
-| Intermediate (~1400) | 3 | 600 ms | 28 cp | 7% |
-| Advanced (~1700) | 5 | 1200 ms | 12 cp | 2% |
-| Master (~2000) | 7 | 2500 ms | 4 cp | 0% |
-| Grandmaster (~2200+) | 12 | 5000 ms | 0 cp | 0% |
-
+| Tier | Depth | Time | Randomness | Blunder rate | Book |
+| --- | --- | --- | --- | --- | --- |
+| Beginner (~800) | 1 | 120 ms | 90 cp | 30% | no |
+| Easy (~1100) | 2 | 250 ms | 55 cp | 16% | no |
+| Intermediate (~1400) | 3 | 600 ms | 28 cp | 7% | yes |
+| Advanced (~1700) | 5 | 1200 ms | 12 cp | 2% | yes |
+| Master (~2000) | 7 | 2500 ms | 4 cp | 0% | yes |
+| Grandmaster (~2200+) | 12 | 5000 ms | 0 cp | 0% | yes |
 *Randomness* is a tolerance in centipawns, not score noise: every root move
 within that many centipawns of the best one is treated as equally playable, so
 the weaker tiers vary their play without ever throwing away a clearly better
@@ -256,6 +258,27 @@ reports for a position is the same at every tier.
 
 At the top tiers the engine searches roughly 90k–260k positions per second in
 the browser.
+
+### 4. The opening book
+
+`src/engine/book.js` holds a few dozen main lines — the open games, the
+Sicilian, the French, the Caro-Kann, the Queen's Gambit, the Indian defences and
+the flank openings — written as move sequences from the starting position, about
+1.2 KB of text in total. Each line contributes every prefix along it to an index,
+so a reply's weight is simply the number of lines that play it: 1.e4 is offered
+more often than 1.Nf3 because more lines start that way, which is also how a
+human opens.
+
+It is a candidate list, not a script. Whatever the book suggests is looked up in
+the legal moves of the position that is actually on the board, so a stale entry,
+a hand-edited line or a caller that passes the wrong move list cannot put an
+illegal move on the board — the search takes over instead. Past eight plies the
+book says nothing and the engine is on its own.
+
+The two weakest tiers do not use it at all: a book line is better than anything
+a one-ply search can find, and a beginner that opens like a grandmaster feels
+scripted rather than weak. A book answer is also labelled as one in the engine
+readout, instead of reporting a depth of 0 and no nodes and looking broken.
 
 ### Why this fits in a static page
 
@@ -286,7 +309,7 @@ CPU was always the only thing it needed.
 npm test
 ```
 
-Twelve suites run in plain Node:
+Thirteen suites run in plain Node:
 
 - `tests/perft.test.mjs` — perft node counts against the published values for
   six standard positions (including Kiwipete and the en-passant/promotion stress
@@ -347,6 +370,14 @@ Twelve suites run in plain Node:
   404; activate drops older cache versions; a navigation is fresh online and
   cached offline; a cached asset answers without waiting for the network; and a
   cold offline visit gets a readable page rather than a browser error.
+- `tests/book.test.mjs` — the opening book is data the engine trusts, so it is
+  checked as data: every line must replay as a legal game, every reply the index
+  offers must be legal in the position it is offered for (this caught a line with
+  an illegal fourth move while it was being written), the whole thing must stay
+  under 5KB, and the replies must vary between games. It also pins the behaviour:
+  a book-enabled tier answers with no search at all, the two weakest tiers never
+  use it, and a move list that does not match the position produces a legal move
+  from the search rather than an illegal one from the book.
 - `tests/mobile.test.mjs` — the pointer-events specificity trap: every rule that
   re-enables input under `#ui` must outrank the blanket `#ui > *` click-through
   rule, and a closed sheet must stay off-screen.
